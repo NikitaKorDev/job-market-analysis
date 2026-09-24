@@ -32,13 +32,19 @@ def check_listing(listing:dict):
 
 
 def get_listing_schema():
-
+    """Get a listing schema, 
+                    title, 
+                    city, 
+                    description, 
+                    salary-month (if present or if possible to calculate reliably)
+                    and salary-hour (if present or possible to calculate reliably)"""
     return {
 
         "title": "",
         "city": "",
         "description": "",
-        "salary-month": "",
-        "salary-hour": ""
-
+        "technologies": "",
+        "salary-month": 0,
+        "salary-hour": 0,
+        "date": ""
     } 
