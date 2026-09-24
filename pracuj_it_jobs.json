@@ -1,0 +1,1220 @@
+[
+  {
+    "title": "DevOps Engineer",
+    "city": "Reguły (pow. pruszkowski)",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/devops-engineer-reguly-pow-pruszkowski,oferta,1005092975?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "EXACT SOLUTION ELECTRONICS sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20289983/2c580000-43a8-f403-ac7c-08d911421882_280x280.png",
+    "technologies": [
+      "AWS",
+      "GitHub",
+      "Docker",
+      "MongoDB",
+      "Linux",
+      "SQL",
+      "GitHub Actions"
+    ],
+    "additional_info": [
+      "Młodszy specjalista / Młodsza specjalistka (junior), Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę, Umowa zlecenie, Kontrakt B2B",
+      "Szukamy wielu kandydatów (2 wakaty)",
+      "Praca od zaraz",
+      "Otwartość również na osoby 50+",
+      "Praca stacjonarna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Senior Data Platform Engineer",
+    "city": "Warszawa, Wola",
+    "description": "We are hiring on behalf of our client, a global innovator in fitness and wellness technology. Their mission is to empower people to live fit, strong, ...",
+    "salary_month": "28 000–30 000 zł brutto / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/senior-data-platform-engineer-warszawa-grzybowska-60,oferta,1005116289?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Motife Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20382547/9b030000-5dac-0015-22ca-08da3caad2cc_280x280.png",
+    "technologies": [
+      "Python",
+      "PostgreSQL",
+      "Kafka",
+      "Spark",
+      "AWS",
+      "JVM"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "FullStack Developer (.NET + Blazor)",
+    "city": "Łódź",
+    "description": "W Scalo zajmujemy się dostarczaniem projektów software'owych i wspieraniem naszych partnerów w rozwijaniu ich biznesu. Tworzymy oprogramowanie, które ...",
+    "salary_month": "",
+    "salary_hour": "120 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/fullstack-developer-net-%2b-blazor-lodz,oferta,1005083136?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Scalo Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20048614/03000000-bb2f-3863-d424-08d930062d01_280x280.png",
+    "technologies": [
+      "C#",
+      ".NET",
+      "ASP.NET Core",
+      "Blazor",
+      "SQL",
+      "Kubernetes"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Azure Platform Engineer",
+    "city": "Warszawa",
+    "description": "We are looking for a skilled Platform Engineer to join our team and contribute to the development of a shared technology platform supporting product d...",
+    "salary_month": "",
+    "salary_hour": "120–140 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/azure-platform-engineer-warszawa,oferta,1005116288?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Mindbox Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074221283/60420000-56be-0050-9373-08debd8a5df7_280x280.png",
+    "technologies": [
+      "Microsoft Azure",
+      "Kubernetes",
+      "GitLab"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Запрошуємо працівників з України",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "DevOps Engineer",
+    "city": "Warszawa",
+    "description": "We are looking for an experienced DevOps Engineer to join our engineering team and drive CI/CD processes and deployment automation for application tea...",
+    "salary_month": "",
+    "salary_hour": "130–150 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/devops-engineer-warszawa,oferta,1005116287?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Mindbox Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074221283/60420000-56be-0050-9373-08debd8a5df7_280x280.png",
+    "technologies": [
+      "Jenkins",
+      "GitLab",
+      "Kubernetes",
+      "Microsoft Azure",
+      "Git"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Запрошуємо працівників з України",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Business Analyst",
+    "city": "Warszawa",
+    "description": "Dla naszego klienta - dużej firmy z branży ubezpieczeniowej - szukamy osoby na stanowisko Business Analyst, która chciałaby dołączyć do zespołu zajmuj...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/business-analyst-warszawa,oferta,1005100932?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Strive Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20395053/2da80000-56be-0050-18c7-08dc006e2fef_280x280.jpg",
+    "technologies": [
+      "SQL",
+      "UML",
+      "BPMN"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Senior .NET Developer",
+    "city": "Warszawa",
+    "description": "Wspólnie z naszym Partnerem z branży Travel-Tech poszukujemy doświadczonego/ej specjalisty/ki do świadczenia usług jako Senior .NET Developer.",
+    "salary_month": "",
+    "salary_hour": "142–198 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-net-developer-warszawa-aleje-jerozolimskie-96,oferta,1005116285?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Connectis_",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20007649/03000000-bb2f-3863-17a3-08d7eb615741_280x280.png",
+    "technologies": [
+      ".NET Core",
+      "C#",
+      "SQL",
+      "Redis"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Business Analyst – Banking & Financial IT",
+    "city": "Łódź",
+    "description": "As a Business Analyst, you will be working for our client, a leading organization in the online banking sector dedicated to delivering innovative digi...",
+    "salary_month": "14 000–23 100 zł / mies. (zal. od umowy)",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/business-analyst-banking-financial-it-lodz,oferta,1005116284?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "ITDS Polska Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20270956/80130000-56be-0050-6e59-08de4210bdaa_280x280.jpg",
+    "technologies": [
+      "Jira",
+      "Confluence"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Lead Software Engineer (Python/Go)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Kraków",
+    "description": "We are looking for an experienced Lead Software Engineer (Python/Go) to take ownership of the technical development of new solutions and help build an...",
+    "salary_month": "34 500–45 000 zł netto (+ VAT) / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/lead-software-engineer-python-go-krakow,oferta,1005100924?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "BRAVER IT SPÓŁKA AKCYJNA",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074102028/ee4d0000-5df0-0015-0faf-08da5e77760c_280x280.png",
+    "technologies": [
+      "Python",
+      "Go"
+    ],
+    "additional_info": [
+      "Kierownik / Kierowniczka - koordynator / Koordynatorka",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior Fullstack Developer (Java+React)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "We are looking for an exceptional Senior Software Developer with a passion for coding who is not afraid to seek new solutions., , We offer cooperation...",
+    "salary_month": "",
+    "salary_hour": "180–250 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-fullstack-developer-java%2breact-warszawa,oferta,1005083123?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Integral Solutions",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20074529/f44a0000-56be-0050-08e8-08dd5bda3517_280x280.jpg",
+    "technologies": [
+      "React.js",
+      "Java",
+      "Spring Boot",
+      "Spring Framework",
+      "Kotlin",
+      "JUnit",
+      "Selenium",
+      "Jenkins",
+      "Docker",
+      "AWS",
+      "Microsoft Azure",
+      "TypeScript",
+      "JavaScript"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Application Support Specialist (1st line)",
+    "city": "Kraków",
+    "description": "",
+    "salary_month": "9 000–11 000 zł brutto / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/application-support-specialist-1st-line-krakow,oferta,1005116277?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Michael Page",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/18801621/4c1c0000-56be-0050-6a37-08dee63171d6_280x280.png",
+    "technologies": [
+      "Microsoft Dynamics",
+      "SAP"
+    ],
+    "additional_info": [
+      "Młodszy specjalista / Młodsza specjalistka (junior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Expert Software Engineer in Rating & Limit Management",
+    "city": "Warszawa",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/expert-software-engineer-in-rating-limit-management-warszawa,oferta,1005110617?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "NORDEA Bank Abp SA Oddział w Polsce",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20074701/2c580000-43a8-f403-9c3b-08d6dec4f521_280x280.jpeg",
+    "technologies": [
+      "Java",
+      "Spring Boot",
+      "SQL",
+      "Kafka",
+      "MQ"
+    ],
+    "additional_info": [
+      "Ekspert / Ekspertka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Web Content Owner",
+    "city": "Poznań, Grunwald",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/web-content-owner-poznan-pastelowa-16,oferta,1005092940?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Centrum Rozwoju Szkół Wyższych Merito Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20061785/9b030000-5dac-0015-cc71-08db57780437_280x280.jpg",
+    "technologies": [],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular), Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Technical Support Specialist with German (m/f/n)",
+    "city": "Wrocław, Śródmieście",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/technical-support-specialist-with-german-m-f-n-wroclaw-curie-sklodowskiej-12,oferta,1005073572?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "PPG",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074176420/a4470000-56be-0050-7b16-08de16142f01_280x280.png",
+    "technologies": [],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Senior Lead Consultant / Principal Data Advisor",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "Senior Lead Consultant / Principal Data Advisor — strategic technical and advisory role responsible for leading large-scale data programmes and provid...",
+    "salary_month": "",
+    "salary_hour": "160–220 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-lead-consultant-principal-data-advisor-warszawa,oferta,1005107477?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "YOUR ITEAMS sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074122129/9b030000-5dac-0015-0d44-08db0f400e09_280x280.png",
+    "technologies": [
+      "Google Cloud Platform",
+      "BigQuery"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Data Governance Engineer (with GCP/BQ)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "We are seeking a Data Governance Engineer (with GCP / BigQuery) to design and maintain robust data architecture and governance practices within a larg...",
+    "salary_month": "",
+    "salary_hour": "160–210 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/data-governance-engineer-with-gcp-bq-warszawa,oferta,1005107476?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "YOUR ITEAMS sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074122129/9b030000-5dac-0015-0d44-08db0f400e09_280x280.png",
+    "technologies": [
+      "Google Cloud Platform"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior Scrum Master",
+    "city": "Warszawa",
+    "description": "",
+    "salary_month": "20 000–24 000 zł / mies. (zal. od umowy)",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/senior-scrum-master-warszawa,oferta,1005083099?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "ER Group Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074145799/9b030000-5dac-0015-da42-08dbfa20a230_280x280.png",
+    "technologies": [
+      "Jira",
+      "Confluence"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior), Ekspert / Ekspertka",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Backend Engineer",
+    "city": "Kraków",
+    "description": "Are you passionate about shaping cutting-edge architecture and delivering innovative solutions? We’re looking for a Backend Engineer to join our clien...",
+    "salary_month": "31 000–34 000 zł netto (+ VAT) / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/backend-engineer-krakow,oferta,1005083096?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Mindbox Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074221283/60420000-56be-0050-9373-08debd8a5df7_280x280.png",
+    "technologies": [
+      "Java",
+      "Kafka",
+      "Docker",
+      "Kubernetes",
+      "Grafana",
+      "Prometheus",
+      "Jaeger"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Запрошуємо працівників з України",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior C# Automation Tester – Distributed Systems",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Wrocław",
+    "description": "As a Senior C# Automation Tester, you will be working for our client, a leader in developing advanced financial ecosystems. You will help build and en...",
+    "salary_month": "19 950–22 050 zł netto (+ VAT) / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/senior-c%23-automation-tester-distributed-systems-wroclaw,oferta,1005116264?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "ITDS Polska Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20270956/80130000-56be-0050-6e59-08de4210bdaa_280x280.jpg",
+    "technologies": [
+      ".NET",
+      "C#",
+      "Playwright",
+      "PostgreSQL",
+      "SQL",
+      "xUnit",
+      "Cypress"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior Azure Data Engineer",
+    "city": "Warszawa",
+    "description": "We are seeking an experienced Senior Azure Data Engineer to join our team and contribute to the design and development of a modern data platform lever...",
+    "salary_month": "",
+    "salary_hour": "110–130 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-azure-data-engineer-warszawa,oferta,1005116257?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Mindbox Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074221283/60420000-56be-0050-9373-08debd8a5df7_280x280.png",
+    "technologies": [
+      "Apache Spark",
+      "Python",
+      "SQL",
+      "Git"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Запрошуємо працівників з України",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Service Delivery Manager (Application Maintenance )​(K/M/X)",
+    "city": "Warszawa, Śródmieście",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/service-delivery-manager-application-maintenance-k-m-x-warszawa-wybrzeze-kosciuszkowskie-41,oferta,1005073543?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "E.ON Polska IT Support Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074005591/03000000-bb2f-3863-58f6-08d9ba43f0bb_280x280.png",
+    "technologies": [],
+    "additional_info": [
+      "Ekspert / Ekspertka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": ".NET Developer (f/m/x)",
+    "city": "Łódź, Śródmieście",
+    "description": "Dołącz do zespołu zajmującego się wsparciem procesów w obszarze bankowości detalicznej w jednym z największych banków w Polsce., Zespół tworzy systemy...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/net-developer-f-m-x-lodz-piotrkowska-157,oferta,1005100896?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular), Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Control Manager – Governance & Frameworks (f/m/x)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:14 lokalizacji",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca zdalna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Team Lead Data Analytics & Business Intelligence (f/m/d)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:2 lokalizacje",
+    "description": "We are looking for a Team Lead Data Analytics & Business Intelligence to lead our data team and drive the execution of our data strategy. This role co...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Erbacher the food family",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000751/2c580000-43a8-f403-862f-08d994716003_280x280.jpg",
+    "technologies": [
+      "SQL",
+      "Microsoft Power BI"
+    ],
+    "additional_info": [
+      "Kierownik / Kierowniczka - koordynator / Koordynatorka, Menedżer / Menedżerka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Запрошуємо працівників з України",
+      "Робота для іноземців",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Business and Systems Analyst (f/m/x)",
+    "city": "3 lokalizacje",
+    "description": "Dołączysz do społeczności ponad 300 analityków biznesowych w Sii. Nasi specjaliści rozwijają aplikacje dedykowane różnym sektorom, m.in. farmaceutyczn...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [
+      "Sparx Systems Enterprise Architect"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular), Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Data Scientist – Python & Cloud Data Platforms (f/m/x)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:14 lokalizacji",
+    "description": "We’re looking for data scientists who turn ambiguous business questions into models and analyses that actually get used. You’ll frame the problem, wra...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [
+      "Cloud Computing",
+      "Python",
+      "Data Platforms",
+      "XGBoost",
+      "Pandas",
+      "NumPy",
+      "Scikit-learn"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular), Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca zdalna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior GIS Tools Specialist",
+    "city": "Kraków, Prądnik Czerwony",
+    "description": "This position involves the creation and maintenance of systems and processes aimed at ensuring data excellence and supporting the operations of flagsh...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/senior-gis-tools-specialist-krakow-aleja-generala-tadeusza-bora-komorowskiego-25,oferta,1005100851?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "COGNIZANT",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20144667/9b030000-5dac-0015-a1ec-08dad6b27986_280x280.jpg",
+    "technologies": [
+      "Python",
+      "SQL",
+      "JavaScript",
+      "Git",
+      "Docker",
+      "Linux",
+      "AWS"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Запрошуємо працівників з України",
+      "Робота для іноземців",
+      "Praca stacjonarna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Specjalista / Specjalistka ds. Obliczeń Komputerowych",
+    "city": "Sopot",
+    "description": "Poszukujemy osoby, która dołączy do projektu rozwoju rozwiązań opartych o kwantowe generatory liczb losowych (QRNG), kryptografię postkwantową (PQC) o...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/specjalista-specjalistka-ds-obliczen-komputerowych-sopot,oferta,1005107439?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "GET IT TOGETHER SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074117654/ee4d0000-5df0-0015-50f9-08daf960385f_280x280.jpg",
+    "technologies": [
+      "Python",
+      "R"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Część etatu",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior IT Developer (Backend Developer)",
+    "city": "Gdańsk",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/senior-it-developer-backend-developer-gdansk,oferta,1005110536?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "NORDEA Bank Abp SA Oddział w Polsce",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20074701/2c580000-43a8-f403-9c3b-08d6dec4f521_280x280.jpeg",
+    "technologies": [
+      "Java",
+      "Spring Boot",
+      "Kafka",
+      "JMS",
+      "MQ",
+      "Git",
+      "PostgreSQL"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior AI DevOps Engineer",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "This is a hands-on role for someone who can take AI solutions from idea to production, build the infrastructure around them, and create the observabil...",
+    "salary_month": "",
+    "salary_hour": "150–170 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-ai-devops-engineer-warszawa,oferta,1005098129?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "SQUARE ONE RESOURCES sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20409928/00230000-56be-0050-c213-08dd5a4ccc03_280x280.png",
+    "technologies": [
+      "AI",
+      "Python",
+      "Go",
+      "LLM",
+      "AWS",
+      "Kubernetes"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Junior Big Data Engineer (Java / Python)",
+    "city": "Poznań, Wilda",
+    "description": "Important things for you:, , Flexible working hours in the hybrid model (4/1) - working hours start between 7:00 a.m. and 10:00 a.m. We also have 30 d...",
+    "salary_month": "11 200–15 250 zł brutto / mies.",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/junior-big-data-engineer-java-python-poznan-wierzbiecice-1b,oferta,1005083006?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Allegro",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20082208/03000000-bb2f-3863-557a-08d6dec4e360_280x280.jpeg",
+    "technologies": [
+      "Python",
+      "Java",
+      "Kotlin",
+      "SQL"
+    ],
+    "additional_info": [
+      "Młodszy specjalista / Młodsza specjalistka (junior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior Fullstack .NET Developer",
+    "city": "Warszawa, Ochota",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "140 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-fullstack-net-developer-warszawa-aleje-jerozolimskie-93,oferta,1005100843?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Scalo Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20048614/03000000-bb2f-3863-d424-08d930062d01_280x280.png",
+    "technologies": [
+      ".NET",
+      "C#",
+      ".NET Core",
+      "Angular",
+      "Microsoft SQL Server",
+      "Redis",
+      "RabbitMQ",
+      "Elasticsearch",
+      "Docker",
+      "Kubernetes",
+      "Git",
+      "Visual Studio",
+      "Visual Studio Code",
+      "Jira",
+      "TeamCity",
+      "PowerShell",
+      "Bash"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "SAP Senior Basis Consultant",
+    "city": "Wrocław, Krzyki",
+    "description": "Dołączysz do zespołu SAP Basis w Convista i jednego z naszych dużych, międzynarodowych programów transformacyjnych SAP S/4HANA.  To greenfieldowa tran...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/sap-senior-basis-consultant-wroclaw-powstancow-slaskich-7a,oferta,1005073506?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Convista Poland",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074019482/9b030000-5dac-0015-4319-08dad158b078_280x280.png",
+    "technologies": [
+      "SAP HANA",
+      "SAP Basis"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Tester manualny (m/k)",
+    "city": "Wrocław",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/tester-manualny-m-k-wroclaw,oferta,1005064710?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "B2B.NET S.A.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20424689/03000000-bb2f-3863-a2ad-08d9952c4759_280x280.png",
+    "technologies": [
+      "Postman",
+      "SQL",
+      "Jira",
+      "Xray",
+      "TestRail"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Umowa zlecenie, Kontrakt B2B",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Programista / Programistka Full Stack .NET",
+    "city": "Poznań, Jeżyce",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/programista-programistka-full-stack-net-poznan-wislana-52,oferta,1005092887?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "POINTER Sp. z o.o.",
+    "logo_url": "",
+    "technologies": [
+      ".NET",
+      "SQL",
+      "C#"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Java Developer (k/m/n) (Spring Boot / Quarkus / Camunda)",
+    "city": "Wrocław",
+    "description": "Poszukujemy doświadczonego Java Developera w obszarze usług cyfrowych i telekomunikacyjnych w Polsce. Projekt obejmuje budowę, skalowanie oraz utrzyma...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/java-developer-k-m-n-spring-boot-quarkus-camunda-wroclaw,oferta,1005092884?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Nexio Management Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20012570/ee4d0000-5df0-0015-cf90-08dbbf3f8234_280x280.png",
+    "technologies": [
+      "Java",
+      "Camunda",
+      "Kogito",
+      "Docker",
+      "Docker Compose",
+      "GitLab CI/CD",
+      "PostgreSQL",
+      "MySQL",
+      "Oracle",
+      "JVM",
+      "Spring Boot",
+      "Spring Framework",
+      "Quarkus"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular), Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Squad Lead",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "Projekt obejmuje kompleksową transformację środowiska IT dużej organizacji finansowej. Celem programu jest modernizacja istniejącej infrastruktury i a...",
+    "salary_month": "",
+    "salary_hour": "150–185 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/squad-lead-warszawa,oferta,1005092883?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "SQUARE ONE RESOURCES sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20409928/00230000-56be-0050-c213-08dd5a4ccc03_280x280.png",
+    "technologies": [
+      "GenAI"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior), Ekspert / Ekspertka",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Kierownik Projektów IT Senior (k/m)",
+    "city": "Warszawa",
+    "description": "Dla naszego klienta z branży bankowej poszukujemy osoby na stanowisko Kierownik Projektów Senior (k/m). Osoba na tym stanowisku będzie odpowiedzialna ...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/kierownik-projektow-it-senior-k-m-warszawa,oferta,1005116208?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "FINTURE Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/1074013649/9c4b0000-56be-0050-e135-08de695a6a83_280x280.jpg",
+    "technologies": [
+      "AI"
+    ],
+    "additional_info": [
+      "Kierownik / Kierowniczka - koordynator / Koordynatorka",
+      "Kontrakt B2B",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Intern Application Consultant (with German)",
+    "city": "4 lokalizacje",
+    "description": "In this position, you will support and improve various applications by analyzing incidents, identifying problems, and participating in source code rev...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Capgemini Polska",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/18804842/9c2e0000-56be-0050-7f8e-08de5da67dd1_280x280.jpg",
+    "technologies": [
+      "Linux",
+      "SQL"
+    ],
+    "additional_info": [
+      "Praktykant / Praktykantka - stażysta / Stażystka",
+      "Umowa zlecenie",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Solution Architect with Data Engineering Experience",
+    "city": "Gdańsk",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/solution-architect-with-data-engineering-experience-gdansk,oferta,1005110487?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "NORDEA Bank Abp SA Oddział w Polsce",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20074701/2c580000-43a8-f403-9c3b-08d6dec4f521_280x280.jpeg",
+    "technologies": [],
+    "additional_info": [
+      "Ekspert / Ekspertka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Młodszy Kierownik Projektu (branża IT) (m/k)",
+    "city": "Nowy Konik (pow. miński)",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/mlodszy-kierownik-projektu-branza-it-m-k-nowy-konik-pow-minski-terespolska-144,oferta,1005092868?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Ledatel Sp. z o.o. i Wspólnicy Spółka Komandytowa",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20161006/03000000-bb2f-3863-136c-08d98f18248c_280x280.png",
+    "technologies": [],
+    "additional_info": [
+      "Młodszy specjalista / Młodsza specjalistka (junior), Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca od zaraz",
+      "Praca stacjonarna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Batch Management Technical Lead (f/m/x)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:10 lokalizacji",
+    "description": "We are looking for a Senior Infrastructure Administrator to join our team, focusing on batch management and scheduling within the banking sector. You ...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [
+      "IBM Mainframe",
+      "IBM Workload Scheduler (IWD)",
+      "Batch Job Management"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Umowa zlecenie, Kontrakt B2B",
+      "Praca stacjonarna, Praca zdalna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Stanowisko ds. wdrażania oprogramowania UE",
+    "city": "Warszawa, Żoliborz",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/stanowisko-ds-wdrazania-oprogramowania-ue-warszawa-szamocka-3,oferta,1005100821?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Zakład Ubezpieczeń Społecznych",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20185506/2c580000-43a8-f403-8565-08d9a9bb54bf_280x280.jpg",
+    "technologies": [],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca stacjonarna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Data Migration Specialist",
+    "city": "Poznań",
+    "description": "Szukamy Data Migration Specialist / Data Quality Specialist, który posiada doświadczenie w projektach wdrożeniowych SAP S/4HANA, odpowiadał za migracj...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/data-migration-specialist-poznan,oferta,1005107375?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "ALTEN Polska",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20062259/2c580000-43a8-f403-1fb3-08d7fbf29184_280x280.png",
+    "technologies": [
+      "SAP",
+      "SAP HANA",
+      "SQL",
+      "Microsoft Excel",
+      "PowerShell"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca od zaraz",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Lead Project Leader - AI Governance & Technology Enablers (IAM, Network & Security)",
+    "city": "Gdańsk",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/lead-project-leader-ai-governance-technology-enablers-iam-network-security-gdansk,oferta,1005100819?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "NORDEA Bank Abp SA Oddział w Polsce",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20074701/2c580000-43a8-f403-9c3b-08d6dec4f521_280x280.jpeg",
+    "technologies": [],
+    "additional_info": [
+      "Ekspert / Ekspertka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Senior BIM Consultant",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Warszawa",
+    "description": "Budowa od zera nowatorskiej platformy webowej wspierającej proces odbiorów i weryfikacji budowlanej (commissionability review). System automatycznie a...",
+    "salary_month": "",
+    "salary_hour": "120–130 zł netto (+ VAT) / godz.",
+    "url": "https://www.pracuj.pl/praca/senior-bim-consultant-warszawa,oferta,1005092852?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "IT LeasingTeam",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20213067/2c580000-43a8-f403-2da1-08d98c888315_280x280.png",
+    "technologies": [
+      "C#",
+      "Python",
+      "JavaScript/TypeScript",
+      "IFC.js",
+      "xeokit",
+      "Autodesk APS",
+      "BuildingSMART IFC/BCF",
+      "LLM/GenAI",
+      "LangChain",
+      "CrewAI",
+      "Semantic Kernel",
+      "RAG",
+      "Bazy Wektorowe/Grafowe",
+      "Azure AI",
+      "PDF Parsing"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Kontrakt B2B",
+      "Praca zdalna"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Digital Change Project Manager (BE/CZ/PL)",
+    "city": "Nowy Dwór Mazowiecki",
+    "description": "As Digital Change Project Manager you make sure that digital initiatives in our Frozen Bakery plants actually land on the shopfloor and deliver measur...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/digital-change-project-manager-be-cz-pl-nowy-dwor-mazowiecki,oferta,1005082960?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "La Lorraine Polska sp.z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/13514880/2c580000-43a8-f403-5396-08d8ea220dc8_280x280.png",
+    "technologies": [
+      "SAP"
+    ],
+    "additional_info": [
+      "Kierownik / Kierowniczka - koordynator / Koordynatorka",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Validation Engineer with Python in AI area (f/m/x)",
+    "city": "Gdańsk, Oliwa",
+    "description": "The project focuses on AI model validation and Python development in the NPU (Neural Processing Unit) segment for a leading processor manufacturer. Th...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/validation-engineer-with-python-in-ai-area-f-m-x-gdansk-aleja-grunwaldzka-472e,oferta,1005100806?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [
+      "Python",
+      "Microsoft Windows",
+      "GitHub"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę, Umowa zlecenie, Kontrakt B2B",
+      "Praca stacjonarna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  },
+  {
+    "title": "Architekt Systemowy (k/m)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:Zielona Góra",
+    "description": "",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "https://www.pracuj.pl/praca/architekt-systemowy-k-m-zielona-gora-wroclawska-17b,oferta,1005092841?s=7f01a531&searchId=MTc5MDI2MTA3NjcxMS4yNjMy",
+    "company_name": "Apator Rector Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000254/2c580000-43a8-f403-2a9b-08d908bd7ff6_280x280.png",
+    "technologies": [
+      "RabbitMQ",
+      "PostgreSQL",
+      "Kubernetes",
+      ".NET",
+      "Nginx"
+    ],
+    "additional_info": [
+      "Specjalista / Specjalistka (mid / Regular)",
+      "Pełny etat",
+      "Umowa o pracę",
+      "Praca stacjonarna, Praca zdalna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": false
+  },
+  {
+    "title": "Senior Application Vulnerability Management Consultant - Immediate Availability (f/m/x)",
+    "city": "Miejsce pracy:Cała Polska (praca zdalna)Siedziba firmy:14 lokalizacji",
+    "description": "Szukamy doświadczonej osoby na stanowisko Senior Application Vulnerability Management Analyst, która dołączy do zespołu odpowiedzialnego za rozwój i o...",
+    "salary_month": "",
+    "salary_hour": "",
+    "url": "",
+    "company_name": "Sii Sp. z o.o.",
+    "logo_url": "https://logos.gpcdn.pl/loga-firm/20000761/03000000-bb2f-3863-1665-08d6dec4c54d_280x280.jpeg",
+    "technologies": [
+      "Vulnerability",
+      "Software Security",
+      "DevSecOps",
+      "SDLC"
+    ],
+    "additional_info": [
+      "Starszy specjalista / Starsza specjalistka (senior)",
+      "Pełny etat",
+      "Umowa o pracę, Kontrakt B2B",
+      "Praca stacjonarna, Praca zdalna, Praca hybrydowa"
+    ],
+    "publication_date": "Opublikowana:24 września 2026",
+    "is_super_offer": true
+  }
+]

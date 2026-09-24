@@ -10,5 +10,5 @@ job_boards = {
 }
 
 if __name__ == '__main__':
-    scraper_hub.fetch_all_listings()
+    data = scraper_hub.fetch_all_listings()
 
