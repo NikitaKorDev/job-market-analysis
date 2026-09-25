@@ -1,0 +1,1 @@
+from .bulldogjobs import fetch_bulldog_jobs
