@@ -1,4 +1,5 @@
 import asyncio
+import json
 # Use full package paths relative to the project root
 from scrapers.olx.olx import fetch_olx_jobs    
 from scrapers.pracuj.pracuj import fetch_pracuj_listings
@@ -22,7 +23,12 @@ def fetch_all_listings():
         print(f"Failed to fetch Pracuj.pl listings ({e}). Proceeding.")
 
     try:
-        justjoin_data = fetch_justjoin_listings()
+        justjoin_data_raw, justjoin_data = asyncio.run(fetch_justjoin_listings())
+        try:
+            with open("justjoin_raw.json", 'a') as file:
+                json.dump(justjoin_data_raw, file)
+        except Exception as e:
+            print("Failed to write down the raw data into a file, proceeding...")
     except Exception as e:
         print("Fuck you the justjoin scraper returned an error, here it is: ", e)
     try:
