@@ -22,6 +22,7 @@ import random
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
@@ -53,9 +54,15 @@ REFRESH_AFTER_DAYS = 7          # re-fetch an offer after this long (catches edi
 MAX_REFRESH_PER_RUN = 25        # cap so refreshes never cause a burst
 PRUNE_AFTER_DAYS = 30           # forget offers not seen in listings for this long
 
-STATE_FILE = "justjoin_state.json"
-STORAGE_STATE_FILE = "justjoin_browser_state.json"
+# State lives next to this file (or in JJ_DATA_DIR), NOT in the current working directory.
+# Otherwise a cron job started from another folder silently starts from scratch every run.
+DATA_DIR = Path(os.environ.get("JJ_DATA_DIR", Path(__file__).resolve().parent))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+STATE_FILE = str(DATA_DIR / "justjoin_state.json")
+STORAGE_STATE_FILE = str(DATA_DIR / "justjoin_browser_state.json")
 SAVE_EVERY = 20
+STATE_VERSION = 2               # bump to force a one-time re-fetch of all cached offers
+RAW_OUTPUT_FILE = str(DATA_DIR / "justjoin_raw.json")
 
 HEADLESS = True                 # if you get challenged, try False
 BLOCK_HEAVY_RESOURCES = True
@@ -252,8 +259,30 @@ def salary_from_jsonld(jp):
     return round(month, 2), round(month / HOURS_PER_MONTH, 2), currency
 
 
+PUBLISHED_RE = re.compile(
+    r"(?:Published|Opublikowano)\s*:?(?:\s|&nbsp;)*(\d{1,2})\.(\d{1,2})\.(\d{4})", re.I
+)
+
+
+def extract_published(page_html):
+    """Reads the 'Published: 28.09.2026' chip. Returns (iso_date, raw_text).
+    Matches on the text, not the hashed MUI classes; also accepts the Polish label."""
+    m = PUBLISHED_RE.search(page_html)
+    if not m:
+        return "", ""
+    day, month, year = (int(x) for x in m.groups())
+    try:
+        return datetime(year, month, day).date().isoformat(), m.group(0)
+    except ValueError:
+        return "", m.group(0)
+
+
 def build_records(offer_url, jp, page_html):
     month, hour, currency = salary_from_jsonld(jp)
+    published_iso, published_raw = extract_published(page_html)
+    # chip first; fall back to JSON-LD datePosted (trimmed to YYYY-MM-DD)
+    date = published_iso or str(jp.get("datePosted") or "")[:10]
+
     schema = get_listing_schema()
     schema.update(
         {
@@ -264,10 +293,11 @@ def build_records(offer_url, jp, page_html):
             "salary-month": month,
             "salary-hour": hour,
             "currency": currency,
-            "date": jp.get("datePosted", ""),
+            "date": date,
         }
     )
-    return {"offer_url": offer_url, "jobposting": jp}, schema
+    raw = {"offer_url": offer_url, "published_raw": published_raw, "jobposting": jp}
+    return raw, schema
 
 
 # ------------------------------------------------------------------ state
@@ -438,7 +468,7 @@ async def process_offer(context, url, throttle, sem, ctl, state, counter, debug_
         return
     if DEBUG and not debug_state["dumped"]:
         debug_state["dumped"] = True
-        with open("debug_offer.html", "w", encoding="utf-8") as f:
+        with open(DATA_DIR / "debug_offer.html", "w", encoding="utf-8") as f:
             f.write(body)
     jp = extract_jobposting(body)
     if not jp:
@@ -454,6 +484,7 @@ async def process_offer(context, url, throttle, sem, ctl, state, counter, debug_
         "first_seen": old.get("first_seen", now),
         "last_seen": now,
         "fetched_at": now,
+        "v": STATE_VERSION,
     }
     counter["n"] += 1
     if counter["n"] % SAVE_EVERY == 0:
@@ -493,16 +524,24 @@ async def fetch_justjoin_listings():
             # Decide what actually needs a request
             now = now_iso()
             new_urls = [u for u in listed if u not in state["offers"]]
-            stale = [u for u in listed if u in state["offers"] and is_stale(state["offers"][u])]
+            backfill = [
+                u for u in listed
+                if u in state["offers"] and state["offers"][u].get("v") != STATE_VERSION
+            ]
+            backfill_set = set(backfill)
+            stale = [
+                u for u in listed
+                if u in state["offers"] and u not in backfill_set and is_stale(state["offers"][u])
+            ]
             for u in listed:
                 if u in state["offers"]:
                     state["offers"][u]["last_seen"] = now
-            to_fetch = new_urls + stale[:MAX_REFRESH_PER_RUN]
+            to_fetch = new_urls + backfill + stale[:MAX_REFRESH_PER_RUN]
             random.shuffle(to_fetch)
             print(
-                f"{len(new_urls)} new, {len(stale)} stale "
-                f"(refreshing {min(len(stale), MAX_REFRESH_PER_RUN)}), "
-                f"{len(listed) - len(new_urls)} served from cache"
+                f"{len(new_urls)} new, {len(backfill)} to backfill, "
+                f"{min(len(stale), MAX_REFRESH_PER_RUN)} stale refreshes, "
+                f"{len(listed) - len(to_fetch)} served from cache"
             )
 
             sem = asyncio.Semaphore(CONCURRENCY)
@@ -532,14 +571,23 @@ async def fetch_justjoin_listings():
     return [c["raw"] for c in current], [c["schema"] for c in current]
 
 
+def dump_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 if __name__ == "__main__":
     t0 = time.monotonic()
     raw, schema = asyncio.run(fetch_justjoin_listings())
     n = len(schema)
-    print(f"\n{n} listings in {time.monotonic() - t0:.0f}s.")
+    dump_json(RAW_OUTPUT_FILE, raw)
+    print(f"\n{n} listings in {time.monotonic() - t0:.0f}s. Raw data -> {RAW_OUTPUT_FILE}")
     if n:
-        ws = sum(1 for s in schema if s["salary-month"] > 0)
-        wt = sum(1 for s in schema if s["technologies"])
-        wd = sum(1 for s in schema if s["description"])
-        print(f"  salary: {ws}/{n}  technologies: {wt}/{n}  description: {wd}/{n}")
+        ws = sum(1 for s_ in schema if s_["salary-month"] > 0)
+        wt = sum(1 for s_ in schema if s_["technologies"])
+        wd = sum(1 for s_ in schema if s_["description"])
+        wdate = sum(1 for s_ in schema if s_["date"])
+        print(f"  salary: {ws}/{n}  technologies: {wt}/{n}  description: {wd}/{n}  date: {wdate}/{n}")
         print(schema[0])
