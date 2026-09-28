@@ -36,6 +36,7 @@ def get_listing_schema():
                     title, 
                     city, 
                     description, 
+                    technologies (if possible) - The tech stack needed for this job
                     salary-month (if present or if possible to calculate reliably)
                     and salary-hour (if present or possible to calculate reliably)"""
     return {
@@ -46,5 +47,6 @@ def get_listing_schema():
         "technologies": "",
         "salary-month": 0,
         "salary-hour": 0,
+        "currency" : "",
         "date": ""
     } 
