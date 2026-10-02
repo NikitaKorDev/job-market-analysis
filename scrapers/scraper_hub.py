@@ -19,7 +19,7 @@ async def _guard(name, awaitable):
     try:
         return await awaitable
     except Exception:
-        print(f"[{name}] failed, proceeding.\n{traceback.format_exc()}")
+        print(f"[{name}] failed, proceeding.\n")
         return None
 
 
@@ -28,7 +28,7 @@ async def _fetch_all():
     # single site. Blocking (sync) scrapers run in worker threads.
     olx, pracuj, justjoin, nofluff, praca, bulldog = await asyncio.gather(
         _guard("olx", asyncio.to_thread(fetch_olx_jobs)),
-        _guard("pracuj", fetch_pracuj_listings(max_pages=2)),
+        _guard("pracuj", fetch_pracuj_listings(max_pages=None)),
         _guard("justjoin", fetch_justjoin_listings()),
         _guard("nofluff", asyncio.to_thread(fetch_no_fluff_listings)),
         _guard("praca", asyncio.to_thread(fetch_praca_listings)),
