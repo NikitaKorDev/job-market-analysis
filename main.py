@@ -11,5 +11,6 @@ job_boards = {
 
 if __name__ == '__main__':
     data = scraper_hub.fetch_all_listings()
+    
     print(data)
 
