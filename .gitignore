@@ -3,8 +3,8 @@
 justjoin_browser.json
 justjoin_raw.json
 scrapers\bulldogjobs\scraped_links.txt
+scrapers\bulldogjobs\.patchright-profile
 notes.txt
-Фрагмент кода
 
 __pycache__/
 *.py[cod]
