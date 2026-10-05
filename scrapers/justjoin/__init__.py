@@ -1,0 +1,1 @@
+from .justjoin import fetch_justjoin_listings
