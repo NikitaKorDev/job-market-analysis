@@ -346,7 +346,7 @@ async def _block_heavy_assets(route):
 async def fetch_bulldog_jobs(
     max_pages: int | None = None,
     with_details: bool = True,
-    headless: bool = False,
+    headless: bool = True,
     concurrency: int = 6,
     rps: float = 4.0,
     links_file: Path = LINKS_FILE,
@@ -410,9 +410,8 @@ async def fetch_bulldog_jobs(
                         finished = True
                         break
                     seen_run.update(c["url"] for c in fresh)
-                    new = [c for c in fresh if c["url"] not in store]
-                    skipped += len(fresh) - len(new)
-                    raw_jobs.extend(new)
+                    skipped += sum(c["url"] in store for c in fresh)
+                    raw_jobs.extend(fresh)
                 print(f"  new so far: {len(raw_jobs)} (already scraped, skipped: {skipped})")
                 page_no = last + 1
 

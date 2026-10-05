@@ -232,7 +232,7 @@ if __name__ == "__main__":
     jobs = fetch_olx_jobs(query="programista", max_pages=2)
 
     print(f"\nRetrieved {len(jobs)} listings matching schema:\n")
-    for idx, job in enumerate(jobs[:5], 1):
+    for idx, job in enumerate(jobs, 1):
         print(f"{idx}. {job['title']}")
         print(f"   City:         {job['city']}")
         print(f"   Salary Month: {job['salary-month']}")

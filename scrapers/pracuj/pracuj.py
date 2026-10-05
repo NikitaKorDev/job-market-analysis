@@ -1,20 +1,27 @@
 import asyncio
 import csv
 import os
+import random
 import re
 import unicodedata
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
 from bs4 import BeautifulSoup
 from patchright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 CSV_FILENAME = "pracuj_it_jobs.csv"
-CONCURRENCY_LIMIT = 5  # Number of parallel browser tabs
+PROFILE_DIR = "./chrome_profile"   # persistent Chrome profile (keeps cookies/consent)
+DEBUG_DIR = "./debug"              # screenshots of pages that failed to load
+
+# Patchright works best with real Chrome, headful (or new-headless). Start with False.
+HEADLESS = False
+CONCURRENCY_LIMIT = 2              # keep low: many parallel tabs look like a bot
+MAX_RETRIES = 3                    # attempts per page before giving up on it
+HARD_PAGE_CAP = 500                # safety cap for sequential "until empty" mode
+MAX_EMPTY_IN_A_ROW = 2             # sequential mode: stop after this many empty pages
 
 BASE_URL = (
-    "https://it.pracuj.pl/praca?its=backend%2Cfrontend%2Cfullstack%2Cmobile%2Carchitecture"
-    "%2Cdevops%2Cgamedev%2Cdata-analytics-and-bi%2Cbig-data-science%2Cembedded%2Ctesting"
-    "%2Csecurity%2Chelpdesk%2Cproduct-management%2Cproject-management%2Cagile%2Cux-ui"
-    "%2Cbusiness-analytics%2Csystem-analytics%2Csap-erp%2Cit-admin%2Cai-ml"
+    "https://it.pracuj.pl/praca?its=backend%2Cfrontend%2Cfullstack%2Cmobile%2Carchitecture%2Cdevops%2Cgamedev%2Cdata-analytics-and-bi%2Cbig-data-science%2Cux-ui%2Cbusiness-analytics%2Cagile%2Cproject-management%2Cproduct-management%2Cai-ml%2Cit-admin%2Csecurity%2Chelpdesk%2Ctesting%2Cembedded%2Csystem-analytics%2Csap-erp"
 )
 
 # Raw Data Lake CSV Schema
@@ -29,14 +36,10 @@ FIELDNAMES = [
     "url",
 ]
 
-# Realistic browser settings for stealth headless mode
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/128.0.0.0 Safari/537.36"
-)
 
-
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
 def build_page_url(base_url: str, page_number: int) -> str:
     """Appends or updates the 'pn' (page number) query parameter in the target URL."""
     url_parts = list(urlparse(base_url))
@@ -47,7 +50,7 @@ def build_page_url(base_url: str, page_number: int) -> str:
 
 
 def clean_text(text: str) -> str:
-    """Normalizes non-breaking spaces (\xa0) and collapses internal whitespace runs."""
+    """Normalizes non-breaking spaces and collapses internal whitespace runs."""
     if not text:
         return ""
     normalized = unicodedata.normalize("NFKC", text)
@@ -55,7 +58,7 @@ def clean_text(text: str) -> str:
 
 
 def parse_salary_number(text: str) -> int:
-    """Extracts numeric salary values from text string (returns average if range)."""
+    """Extracts numeric salary values from text (returns average if a range)."""
     cleaned = re.sub(r"\s+", "", text)
     nums = [int(n) for n in re.findall(r"\d+", cleaned)]
     if not nums:
@@ -65,15 +68,18 @@ def parse_salary_number(text: str) -> int:
     return int(sum(nums) / len(nums))
 
 
-def extract_max_pages(soup: BeautifulSoup) -> int:
-    """Extracts total pages available from pagination DOM elements."""
+def extract_max_pages(soup: BeautifulSoup) -> int | None:
+    """
+    Returns the total page count, or None if it can't be determined reliably.
+
+    Only the dedicated "max page" element is trusted. The bottom pagination
+    buttons usually show just a window of pages (e.g. 1..5), so using them
+    would silently under-report the total.
+    """
     max_elem = soup.select_one('[data-test="top-pagination-max-page-number"]')
     if max_elem and max_elem.get_text(strip=True).isdigit():
         return int(max_elem.get_text(strip=True))
-
-    page_btns = soup.select('[data-test^="bottom-pagination-button-page-"]')
-    pages = [int(btn.get_text(strip=True)) for btn in page_btns if btn.get_text(strip=True).isdigit()]
-    return max(pages) if pages else 1
+    return None
 
 
 async def auto_scroll(page, max_scrolls: int = 12, step: int = 1200):
@@ -120,67 +126,58 @@ async def dismiss_overlays(page):
         pass
 
 
-def extract_raw_job_card(card: BeautifulSoup) -> dict:
-    """Parses raw job card for CSV Data Lake persistence."""
+# --------------------------------------------------------------------------- #
+# Card parsing (each card is parsed ONCE and yields both representations)
+# --------------------------------------------------------------------------- #
+def _short_description(card: BeautifulSoup) -> str:
+    desc_elem = (
+        card.select_one('[data-test="section-short-description-projectDescriptionAccordion"] p')
+        or card.select_one('[data-test="description-content-container"] p')
+        or card.select_one('[data-test="seo-content-wrapper"] p')
+    )
+    return clean_text(desc_elem.get_text(" ", strip=True)) if desc_elem else ""
+
+
+def parse_card(card: BeautifulSoup) -> tuple[dict, dict] | None:
+    """Parses one job card into (raw_row_for_csv, formatted_dict). None if no title."""
+    title_elem = card.select_one('[data-test="offer-title"]')
+    title = clean_text(title_elem.get_text(" ", strip=True)) if title_elem else ""
+    if not title:
+        return None
+
+    city_elem = card.select_one('[data-test="text-region"]')
+    city = clean_text(city_elem.get_text(" ", strip=True)) if city_elem else ""
+
+    description = _short_description(card)
+
+    # URL / offer id
     link_elem = card.select_one('a[data-test="link-offer"]')
     raw_href = link_elem["href"] if link_elem and link_elem.has_attr("href") else ""
-
     clean_url = raw_href.split("?")[0] if raw_href else ""
     match = re.search(r",oferta,(\d+)", raw_href)
     offer_id = match.group(1) if match else (clean_url.rstrip("/").split("/")[-1] if clean_url else "")
 
-    title_elem = card.select_one('[data-test="offer-title"]')
-    title = clean_text(title_elem.get_text(" ", strip=True)) if title_elem else ""
-
-    city_elem = card.select_one('[data-test="text-region"]')
-    city = clean_text(city_elem.get_text(" ", strip=True)) if city_elem else ""
-
-    company_elem = card.select_one('[data-test="link-company-profile"]') or card.select_one('[data-test="text-company-name"]')
+    # Company
+    company_elem = (
+        card.select_one('[data-test="link-company-profile"]')
+        or card.select_one('[data-test="text-company-name"]')
+    )
     company = clean_text(company_elem.get_text(" ", strip=True)) if company_elem else ""
 
-    salary_month, salary_hour = "", ""
+    # Salary
+    salary_text = ""
     salary_elem = card.select_one('[data-test="offer-salary"]')
     if salary_elem:
         salary_text = clean_text(salary_elem.get_text(" ", strip=True))
-        if "mies." in salary_text:
-            salary_month = salary_text
-        elif "godz." in salary_text:
-            salary_hour = salary_text
 
-    desc_elem = (
-        card.select_one('[data-test="section-short-description-projectDescriptionAccordion"] p')
-        or card.select_one('[data-test="description-content-container"] p')
-        or card.select_one('[data-test="seo-content-wrapper"] p')
-    )
-    description = clean_text(desc_elem.get_text(" ", strip=True)) if desc_elem else ""
+    raw_month = salary_text if "mies." in salary_text else ""
+    raw_hour = salary_text if "godz." in salary_text else ""
 
-    return {
-        "offer_id": offer_id,
-        "title": title,
-        "city": city,
-        "description": description,
-        "salary-month": salary_month,
-        "salary-hour": salary_hour,
-        "company": company,
-        "url": clean_url,
-    }
+    parsed_val = parse_salary_number(salary_text) if salary_text else 0
+    fmt_month = parsed_val if "mies." in salary_text else 0
+    fmt_hour = parsed_val if "godz." in salary_text else 0
 
-
-def extract_formatted_job_card(card: BeautifulSoup) -> dict:
-    """Parses job card to match requested target dictionary schema."""
-    title_elem = card.select_one('[data-test="offer-title"]')
-    title = clean_text(title_elem.get_text(" ", strip=True)) if title_elem else ""
-
-    city_elem = card.select_one('[data-test="text-region"]')
-    city = clean_text(city_elem.get_text(" ", strip=True)) if city_elem else ""
-
-    desc_elem = (
-        card.select_one('[data-test="section-short-description-projectDescriptionAccordion"] p')
-        or card.select_one('[data-test="description-content-container"] p')
-        or card.select_one('[data-test="seo-content-wrapper"] p')
-    )
-    description = clean_text(desc_elem.get_text(" ", strip=True)) if desc_elem else ""
-
+    # Technologies
     tech_elems = card.select(
         '[data-test="item-technologies"], '
         '[data-test="chip-technology"], '
@@ -193,18 +190,8 @@ def extract_formatted_job_card(card: BeautifulSoup) -> dict:
         t = clean_text(elem.get_text(" ", strip=True))
         if t and t not in tech_list:
             tech_list.append(t)
-    technologies = ", ".join(tech_list)
 
-    salary_month, salary_hour = 0, 0
-    salary_elem = card.select_one('[data-test="offer-salary"]')
-    if salary_elem:
-        salary_text = clean_text(salary_elem.get_text(" ", strip=True))
-        parsed_val = parse_salary_number(salary_text)
-        if "mies." in salary_text:
-            salary_month = parsed_val
-        elif "godz." in salary_text:
-            salary_hour = parsed_val
-
+    # Date
     date_elem = (
         card.select_one('[data-test="text-added"]')
         or card.select_one('[data-test="text-added-date"]')
@@ -213,179 +200,214 @@ def extract_formatted_job_card(card: BeautifulSoup) -> dict:
     )
     date_str = clean_text(date_elem.get_text(" ", strip=True)) if date_elem else ""
 
-    return {
+    raw = {
+        "offer_id": offer_id,
         "title": title,
         "city": city,
         "description": description,
-        "technologies": technologies,
-        "salary-month": salary_month,
-        "salary-hour": salary_hour,
+        "salary-month": raw_month,
+        "salary-hour": raw_hour,
+        "company": company,
+        "url": clean_url,
+    }
+    formatted = {
+        "title": title,
+        "city": city,
+        "description": description,
+        "technologies": ", ".join(tech_list),
+        "salary-month": fmt_month,
+        "salary-hour": fmt_hour,
         "date": date_str,
     }
+    return raw, formatted
 
 
-def save_jobs_to_csv(filename: str, jobs: list[dict]):
-    """Handles thread/async-safe Raw CSV persistence and deduplication."""
-    file_has_content = os.path.exists(filename) and os.path.getsize(filename) > 0
-    existing_ids = set()
+# --------------------------------------------------------------------------- #
+# CSV persistence
+# --------------------------------------------------------------------------- #
+class CsvSink:
+    """Append-only CSV writer with in-memory dedup. Validates the header up front."""
 
-    if file_has_content:
-        with open(filename, mode="r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            if reader.fieldnames != FIELDNAMES:
-                raise SystemExit(f"Header Mismatch Error in '{filename}'. Expected: {FIELDNAMES}")
-            for row in reader:
-                identifier = row.get("offer_id") or row.get("url")
-                if identifier:
-                    existing_ids.add(identifier)
+    def __init__(self, filename: str):
+        self.filename = filename
+        self.lock = asyncio.Lock()
+        self.seen: set[str] = set()
+        self.has_content = os.path.exists(filename) and os.path.getsize(filename) > 0
 
-    new_jobs = []
-    seen = set(existing_ids)
-    for j in jobs:
-        item_id = j.get("offer_id") or j.get("url")
-        if not item_id or item_id in seen:
-            continue
-        seen.add(item_id)
-        new_jobs.append(j)
+        if self.has_content:
+            with open(filename, mode="r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames != FIELDNAMES:
+                    # Raised before any browser work starts, so it can't kill a gather() midway.
+                    raise SystemExit(
+                        f"Header mismatch in '{filename}'. Expected: {FIELDNAMES}, got: {reader.fieldnames}"
+                    )
+                for row in reader:
+                    ident = row.get("offer_id") or row.get("url")
+                    if ident:
+                        self.seen.add(ident)
 
-    if not new_jobs:
-        return
+    async def save(self, jobs: list[dict]) -> int:
+        async with self.lock:
+            new_jobs = []
+            for j in jobs:
+                ident = j.get("offer_id") or j.get("url")
+                if not ident or ident in self.seen:
+                    continue
+                self.seen.add(ident)
+                new_jobs.append(j)
 
-    mode = "a" if file_has_content else "w"
-    with open(filename, mode=mode, encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
-        if not file_has_content:
-            writer.writeheader()
-        writer.writerows(new_jobs)
+            if not new_jobs:
+                return 0
 
-    print(f"Appended {len(new_jobs)} unique listings to '{filename}'.")
+            mode = "a" if self.has_content else "w"
+            with open(self.filename, mode=mode, encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+                if not self.has_content:
+                    writer.writeheader()
+                writer.writerows(new_jobs)
+            self.has_content = True
+            return len(new_jobs)
 
 
-async def scrape_page(context, target_url: str, page_num: int, semaphore: asyncio.Semaphore, csv_lock: asyncio.Lock) -> list[dict]:
-    """Processes a single page tab concurrently in headless mode."""
-    async with semaphore:
-        page = await context.new_page()
-        formatted_jobs = []
+# --------------------------------------------------------------------------- #
+# Scraping
+# --------------------------------------------------------------------------- #
+async def load_page_cards(context, target_url: str, page_num: int):
+    """
+    Loads one results page. Returns (soup, cards) on success, or None if no cards
+    were found (timeout / block / end of results). Logs enough to tell which.
+    """
+    page = await context.new_page()
+    try:
+        page_url = build_page_url(target_url, page_num)
+        print(f"[Page {page_num}] Navigating -> {page_url}")
+
+        await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+        await dismiss_overlays(page)
+
         try:
-            page_url = build_page_url(target_url, page_num)
-            print(f"[Page {page_num}] Navigating -> {page_url}")
-
-            await page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
-            await dismiss_overlays(page)
-
+            await page.wait_for_selector('[data-test="default-offer"]', timeout=15000)
+        except PlaywrightTimeoutError:
+            title = await page.title()
+            print(f"[Page {page_num}] No cards. title={title!r} final_url={page.url}")
+            os.makedirs(DEBUG_DIR, exist_ok=True)
             try:
-                await page.wait_for_selector('[data-test="default-offer"]', timeout=12000)
-            except PlaywrightTimeoutError:
-                print(f"[Page {page_num}] No cards found or timeout reached.")
-                return []
+                await page.screenshot(path=os.path.join(DEBUG_DIR, f"page_{page_num}.png"))
+            except Exception:
+                pass
+            return None
 
-            await auto_scroll(page)
-            content = await page.content()
-            soup = BeautifulSoup(content, "html.parser")
-            cards = soup.select('[data-test="default-offer"]')
+        await auto_scroll(page)
+        soup = BeautifulSoup(await page.content(), "html.parser")
+        cards = soup.select('[data-test="default-offer"]')
+        return soup, cards
 
-            raw_jobs = [extract_raw_job_card(c) for c in cards if extract_raw_job_card(c).get("title")]
-            formatted_jobs = [extract_formatted_job_card(c) for c in cards if extract_formatted_job_card(c).get("title")]
+    except Exception as e:
+        print(f"[Page {page_num}] Error while loading: {type(e).__name__}: {e}")
+        return None
+    finally:
+        await page.close()
 
-            print(f"[Page {page_num}] Scraped {len(raw_jobs)} cards.")
 
-            async with csv_lock:
-                save_jobs_to_csv(CSV_FILENAME, raw_jobs)
+async def scrape_page(context, target_url: str, page_num: int, sink: CsvSink):
+    """Scrapes one page with retries. Returns (formatted_jobs, soup) or ([], None) on failure."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        # Small random delay so requests don't arrive in a perfectly regular pattern
+        await asyncio.sleep(random.uniform(0.5, 1.5))
 
-        except Exception as e:
-            print(f"[Page {page_num}] Unexpected error: {e}")
-        finally:
-            await page.close()
+        result = await load_page_cards(context, target_url, page_num)
+        if result is not None:
+            soup, cards = result
+            parsed = [p for p in (parse_card(c) for c in cards) if p]
+            if parsed:
+                raw_jobs = [r for r, _ in parsed]
+                formatted_jobs = [f for _, f in parsed]
+                added = await sink.save(raw_jobs)
+                print(f"[Page {page_num}] Parsed {len(parsed)} cards, {added} new rows saved.")
+                return formatted_jobs, soup
 
-        return formatted_jobs
+        if attempt < MAX_RETRIES:
+            backoff = 2 * attempt + random.random()
+            print(f"[Page {page_num}] Attempt {attempt}/{MAX_RETRIES} failed, retrying in {backoff:.1f}s")
+            await asyncio.sleep(backoff)
+
+    print(f"[Page {page_num}] FAILED after {MAX_RETRIES} attempts")
+    return [], None
 
 
 async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) -> list[dict]:
-    """Orchestrates concurrent headless scraping with anti-detection evasions."""
-    all_formatted_listings = []
+    """Scrapes all result pages. max_pages=0 means 'everything'."""
+    sink = CsvSink(CSV_FILENAME)  # validates CSV header before any browser work
+    all_listings: list[dict] = []
+    failed_pages: list[int] = []
 
     async with async_playwright() as p:
-        # Launch Chromium with anti-bot evasion arguments for headless execution
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--headless=new",
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-infobars",
-                "--window-size=1920,1080",
-            ],
+        # Patchright-recommended setup: real Chrome, persistent profile, no custom UA,
+        # no extra evasion args, no navigator.webdriver patching.
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=PROFILE_DIR,
+            channel="chrome",
+            headless=HEADLESS,
+            no_viewport=True,
+            locale="pl-PL",
+            timezone_id="Europe/Warsaw",
         )
 
         try:
-            # Create browser context with realistic viewport, locale, and user agent
-            context = await browser.new_context(
-                user_agent=USER_AGENT,
-                viewport={"width": 1920, "height": 1080},
-                locale="pl-PL",
-                timezone_id="Europe/Warsaw",
-            )
-
-            # Mask navigator.webdriver flag in all new tabs
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-            """)
-
-            print("--- Processing Page 1 & Discovering Total Pages (Headless) ---")
-            init_page = await context.new_page()
-            page_1_url = build_page_url(target_url, 1)
-            await init_page.goto(page_1_url, wait_until="domcontentloaded", timeout=15000)
-            await dismiss_overlays(init_page)
-
-            try:
-                await init_page.wait_for_selector('[data-test="default-offer"]', timeout=12000)
-            except PlaywrightTimeoutError:
-                print("Failed to load initial page listings in headless mode.")
+            print("--- Processing Page 1 & discovering total pages ---")
+            page1_jobs, soup1 = await scrape_page(context, target_url, 1, sink)
+            if not page1_jobs:
+                print("Failed to load page 1. Check ./debug/page_1.png and the log above.")
                 return []
+            all_listings.extend(page1_jobs)
 
-            await auto_scroll(init_page)
-            content = await init_page.content()
-            soup = BeautifulSoup(content, "html.parser")
+            detected_total = extract_max_pages(soup1)
+            limit = max_pages if max_pages and max_pages > 0 else None
 
-            detected_total_pages = extract_max_pages(soup)
-            print(f"Detected {detected_total_pages} total available pages.")
+            if detected_total is not None:
+                total_to_fetch = min(limit, detected_total) if limit else detected_total
+                print(f"Detected {detected_total} total pages; fetching {total_to_fetch}.")
 
-            cards = soup.select('[data-test="default-offer"]')
-            p1_raw_jobs = [extract_raw_job_card(c) for c in cards if extract_raw_job_card(c).get("title")]
-            p1_formatted_jobs = [extract_formatted_job_card(c) for c in cards if extract_formatted_job_card(c).get("title")]
+                if total_to_fetch > 1:
+                    semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
-            save_jobs_to_csv(CSV_FILENAME, p1_raw_jobs)
-            all_formatted_listings.extend(p1_formatted_jobs)
-            await init_page.close()
+                    async def worker(n: int):
+                        async with semaphore:
+                            jobs, _ = await scrape_page(context, target_url, n, sink)
+                            return n, jobs
 
-            if max_pages > 0:
-                total_to_fetch = min(max_pages, detected_total_pages)
+                    results = await asyncio.gather(*(worker(n) for n in range(2, total_to_fetch + 1)))
+                    for n, jobs in sorted(results):
+                        if jobs:
+                            all_listings.extend(jobs)
+                        else:
+                            failed_pages.append(n)
             else:
-                total_to_fetch = detected_total_pages
+                # Page count unknown: walk pages sequentially until results run out.
+                print("Could not detect total pages; paging sequentially until empty.")
+                cap = min(limit, HARD_PAGE_CAP) if limit else HARD_PAGE_CAP
+                empty_in_a_row = 0
+                for n in range(2, cap + 1):
+                    jobs, _ = await scrape_page(context, target_url, n, sink)
+                    if jobs:
+                        all_listings.extend(jobs)
+                        empty_in_a_row = 0
+                    else:
+                        empty_in_a_row += 1
+                        failed_pages.append(n)
+                        if empty_in_a_row >= MAX_EMPTY_IN_A_ROW:
+                            print(f"{MAX_EMPTY_IN_A_ROW} empty pages in a row; assuming end of results.")
+                            break
 
-            if total_to_fetch > 1:
-                print(f"\n--- Spawning Concurrent Headless Tasks for Pages 2 to {total_to_fetch} ---")
-                semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
-                csv_lock = asyncio.Lock()
-
-                tasks = [
-                    scrape_page(context, target_url, page_num, semaphore, csv_lock)
-                    for page_num in range(2, total_to_fetch + 1)
-                ]
-
-                results = await asyncio.gather(*tasks)
-                for res in results:
-                    all_formatted_listings.extend(res)
-
-            print(f"\nSuccessfully extracted {len(all_formatted_listings)} formatted listings total!")
+            if failed_pages:
+                print(f"\nPages with no results after retries: {failed_pages}")
+            print(f"\nExtracted {len(all_listings)} formatted listings total.")
 
         finally:
-            await browser.close()
+            await context.close()
 
-    return all_formatted_listings
+    return all_listings
 
 
 if __name__ == "__main__":
