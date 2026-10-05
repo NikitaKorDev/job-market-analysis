@@ -1,1 +1,0 @@
-from .praca import fetch_praca_listings

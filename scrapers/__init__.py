@@ -1,1 +1,0 @@
-"""Thats the folder that contains all the scrapers for the websites"""
