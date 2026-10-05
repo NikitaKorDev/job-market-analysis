@@ -1,1 +1,0 @@
-"""Scraper for the olx website, utilising API endpoint from the website to avoid parsing the html, saves resourses"""

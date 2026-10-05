@@ -1,1 +1,0 @@
-from .pracuj import fetch_pracuj_listings
