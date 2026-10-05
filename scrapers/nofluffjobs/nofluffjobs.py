@@ -4,7 +4,9 @@ Instead of guessing the search API's request format, we let the real page make
 ONE "load more" request, capture its exact URL/headers/body, and replay it for
 every other page in parallel (in-page fetch, so Cloudflare cookies just work).
 Offer details come from /api/posting/<slug>, also in parallel.
-If anything fails, we fall back to fast DOM parsing.
+If anything fails, we fall back to DOM parsing (click "load more" until the
+list is exhausted, then read the cards; descriptions come from each offer's
+JSON-LD when available).
 
     pip install patchright
     patchright install chrome
@@ -159,7 +161,11 @@ class _Browser:
 
         self.pw = sync_playwright().start()
         self.ctx = self.pw.chromium.launch_persistent_context(
-            USER_DATA_DIR, channel="chrome", headless=headless, no_viewport=True
+            USER_DATA_DIR,
+            channel="chrome",
+            headless=headless,
+            viewport={"width": 1920, "height": 1080},
+            args=["--disable-blink-features=AutomationControlled"],
         )
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         self.last_error = None
@@ -264,34 +270,54 @@ def _fetch_via_api(fetch_details, max_listings, headless):
 # --------------------------------------------------------------------------
 CURRENCIES = {"PLN": "PLN", "ZŁ": "PLN", "EUR": "EUR", "€": "EUR", "USD": "USD", "$": "USD", "GBP": "GBP", "£": "GBP", "CHF": "CHF"}
 
-# Scroll + click "Pokaż kolejne oferty" in one in-page loop: a single round trip.
+# Scroll + click "Pokaż kolejne oferty" in one in-page loop.
+# Old version gave up after ONE slow click (5 s) or a 2.5 s gap without a button,
+# so a single hiccup ended pagination early. This one:
+#   - waits up to 15 s for the list to grow after a click,
+#   - tolerates 3 consecutive stalled clicks (re-clicks the button),
+#   - only decides "that's the end" after the button has been absent for ~3 s
+#     AND the card count stopped changing.
 LOAD_ALL_JS = """
-async (maxClicks) => {
+async ({maxClicks, maxCards}) => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const count = () => document.querySelectorAll('a.posting-list-item').length;
-  let clicks = 0;
-  while (!maxClicks || clicks < maxClicks) {
+  const findBtn = () => document.querySelector('button[nfjloadmore]');
+  let clicks = 0, stalls = 0, idle = 0;
+  while (true) {
+    if (maxClicks && clicks >= maxClicks) break;
+    if (maxCards && count() >= maxCards) break;
     window.scrollTo(0, document.body.scrollHeight);
-    let btn = null;
-    for (let i = 0; i < 25 && !(btn = document.querySelector('button[nfjloadmore]')); i++) await sleep(100);
-    if (!btn) break;
     const before = count();
+    const btn = findBtn();
+    if (!btn) {
+      await sleep(500);
+      if (findBtn() || count() > before) { idle = 0; continue; }
+      if (++idle >= 6) break;            // ~3 s with no button and no growth: really the end
+      continue;
+    }
+    idle = 0;
+    btn.scrollIntoView({block: 'center'});
     btn.click(); clicks++;
     let grew = false;
-    for (let i = 0; i < 100 && !grew; i++) { await sleep(50); grew = count() > before; }
-    if (!grew) break;
+    for (let i = 0; i < 300 && !grew; i++) {   // up to 15 s
+      await sleep(50);
+      grew = count() > before;
+    }
+    if (grew) stalls = 0;
+    else if (++stalls >= 3) break;
   }
-  return count();
+  return {cards: count(), clicks};
 }
 """
 
 EXTRACT_JS = """
 cards => cards.map(a => {
-  const one = s => { const e = a.querySelector(s); return e ? e.innerText.trim() : ""; };
-  const many = s => [...a.querySelectorAll(s)].map(e => e.innerText.trim()).filter(Boolean);
+  const text = e => e ? e.innerText.trim() : "";
+  const one = (...sels) => { for (const s of sels) { const t = text(a.querySelector(s)); if (t) return t; } return ""; };
+  const many = s => [...a.querySelectorAll(s)].map(text).filter(Boolean);
   return {
     href: a.getAttribute("href") || "",
-    title: one('[data-cy="title position on the job offer listing"]'),
+    title: one('[data-cy="title position on the job offer listing"]', 'h3', 'h2'),
     city: one('[data-cy="location on the job offer listing"]'),
     tech: many('[data-cy="category name on the job offer listing"]'),
     salary: one('[data-cy="salary ranges on the job offer listing"]'),
@@ -299,6 +325,31 @@ cards => cards.map(a => {
   };
 })
 """
+
+# Fetch each offer's HTML from inside the page (same cookies as the browser).
+FETCH_HTML_JS = """
+async (urls) => Promise.all(urls.map(async u => {
+  try {
+    const r = await fetch(u, {credentials: "include"});
+    return r.ok ? await r.text() : null;
+  } catch (e) { return null; }
+}))
+"""
+
+_LD_JSON = re.compile(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', re.S | re.I)
+
+
+def _jsonld_description(page_html) -> str:
+    """Description from the offer page's schema.org JobPosting block, if present."""
+    for m in _LD_JSON.finditer(page_html or ""):
+        try:
+            data = json.loads(m.group(1))
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                return _html_to_text(item.get("description"))
+    return ""
 
 
 def _parse_salary_text(raw: str):
@@ -316,7 +367,7 @@ def _parse_salary_text(raw: str):
     return int(round(value)), int(round(value / HOURS_PER_MONTH)), currency
 
 
-def _fetch_via_dom(max_listings, headless, max_clicks=None):
+def _fetch_via_dom(max_listings, headless, max_clicks=None, fetch_details=True):
     from patchright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -324,39 +375,65 @@ def _fetch_via_dom(max_listings, headless, max_clicks=None):
             USER_DATA_DIR, channel="chrome", headless=headless, no_viewport=True
         )
         try:
-            # Skip everything we don't parse: images, fonts, media, CSS.
+            # Skip heavy stuff we don't parse. Stylesheets are NOT blocked any more:
+            # the Angular app + Cloudflare behave more reliably with a normal page.
             ctx.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in {"image", "font", "media", "stylesheet"}
+                if route.request.resource_type in {"image", "font", "media"}
                 else route.continue_(),
             )
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_selector(CARD, timeout=30000)
-            page.evaluate(LOAD_ALL_JS, max_clicks or 0)
+
+            stats = page.evaluate(
+                LOAD_ALL_JS,
+                {"maxClicks": max_clicks or 0, "maxCards": max_listings or 0},
+            )
+            print(f"[nofluff] DOM: {stats['cards']} cards after {stats['clicks']} 'load more' click(s)")
             cards = page.eval_on_selector_all(CARD, EXTRACT_JS)
+
+            # De-duplicate by URL and apply the limit BEFORE any detail fetching.
+            seen, unique = set(), []
+            for c in cards:
+                url = urljoin(SITE_ROOT, c["href"])
+                if c["href"] and url not in seen:
+                    seen.add(url)
+                    unique.append((url, c))
+            if max_listings:
+                unique = unique[:max_listings]
+
+            descriptions = [""] * len(unique)
+            if fetch_details and unique:
+                urls = [u for u, _ in unique]
+                for i in range(0, len(urls), 10):
+                    try:
+                        pages_html = page.evaluate(FETCH_HTML_JS, urls[i:i + 10])
+                    except Exception as e:
+                        print(f"[nofluff] DOM detail batch failed: {e!r}")
+                        continue
+                    for j, h in enumerate(pages_html):
+                        descriptions[i + j] = _jsonld_description(h)
+                got = sum(bool(d) for d in descriptions)
+                print(f"[nofluff] DOM: descriptions found for {got}/{len(descriptions)} offers")
         finally:
             ctx.close()
 
-    seen, listings = set(), []
-    for c in cards:
-        url = urljoin(SITE_ROOT, c["href"])
-        if url in seen:
-            continue
-        seen.add(url)
+    listings = []
+    for (url, c), desc in zip(unique, descriptions):
         month, hour, currency = _parse_salary_text(c["salary"])
         listings.append({
             "title": _clean(c["title"]),
             "city": _clean(c["city"]),
-            "description": "",  # not on the card; needs the API or a per-offer visit
+            "description": desc,
             "technologies": ", ".join(_clean(t) for t in c["tech"]),
             "salary-month": month,
             "salary-hour": hour,
             "currency": currency,
             "date": _clean(c["badge"]),
         })
-    return listings[:max_listings] if max_listings else listings
+    return listings
 
 
 # --------------------------------------------------------------------------
@@ -365,7 +442,7 @@ def _fetch_via_dom(max_listings, headless, max_clicks=None):
 def fetch_no_fluff_listings(fetch_details=True, max_listings=None, use_api=True, headless=False):
     """Return a list of dicts matching get_listing_schema().
 
-    fetch_details: also pull each offer's detail JSON (description + must-have tech).
+    fetch_details: also pull each offer's description (API detail JSON, or JSON-LD in DOM mode).
     use_api:       set False to force the DOM fallback.
     """
     if use_api:
@@ -373,7 +450,7 @@ def fetch_no_fluff_listings(fetch_details=True, max_listings=None, use_api=True,
             return _fetch_via_api(fetch_details, max_listings, headless)
         except Exception as e:
             print(f"[nofluff] API path failed ({e!r}); falling back to page parsing")
-    return _fetch_via_dom(max_listings, headless)
+    return _fetch_via_dom(max_listings, headless, fetch_details=fetch_details)
 
 
 if __name__ == "__main__":

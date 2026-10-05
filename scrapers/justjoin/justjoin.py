@@ -1,16 +1,26 @@
 """
-JustJoin.it scraper v3 (patchright): fast, but polite.
+JustJoin.it scraper v4 (patchright): same safety design as v3, but faster.
+
+What changed vs v3 (behaviour and output format are unchanged):
+  * Listing pages are loaded LISTING_PARALLEL at a time instead of strictly one by one
+    (every page start still goes through the shared throttle).
+  * Scrolling no longer sleeps a fixed 500 ms per pass: it waits only until the page
+    actually grows (or a short timeout), and reads everything in one browser round trip.
+  * State is written at most every SAVE_INTERVAL_S seconds / SAVE_EVERY offers, and the
+    JSON is written in a worker thread, so the event loop (and all workers) never stall
+    while a multi-MB file is serialised.
+  * Default request interval lowered a little (BASE_INTERVAL / JITTER); the adaptive
+    throttle and circuit breaker still back off on 429/403/5xx exactly as before.
 
 Safety design (what actually keeps you from getting blocked):
   * INCREMENTAL: offers already scraped are read from a local state file and are NOT
-    re-fetched (only re-checked after REFRESH_AFTER_DAYS). After the first run, a
-    twice-a-day run only touches new offers, i.e. a handful of requests.
-  * THROTTLE: one shared rate limiter with jitter for every request, low concurrency.
+    re-fetched (only re-checked after REFRESH_AFTER_DAYS).
+  * THROTTLE: one shared rate limiter with jitter for every request.
   * ADAPTIVE: on 429/403/5xx it honours Retry-After, pauses ALL workers, and doubles
     the request interval; it speeds back up slowly after successes.
   * CIRCUIT BREAKER: after several blocks in a row it stops the run, saves progress,
     and exits instead of hammering the site.
-  * SESSION REUSE: cookies are saved between runs (returning visitor, fewer challenges).
+  * SESSION REUSE: cookies are saved between runs.
 
 Set JJ_DEBUG=1 to dump the first offer's HTML to debug_offer.html.
 """
@@ -38,13 +48,15 @@ except ImportError:
 BASE_URL_TEMPLATE = "https://justjoin.it/job-offers/all-locations?page={page}"
 MAX_LISTING_PAGES = 300         # safety ceiling only; crawl ends when the site runs out of pages
 MAX_SCROLL_PASSES = 60          # per listing page, for lazy-loaded / virtualized lists
+SCROLL_WAIT_MS = 450            # max wait for the page to grow after a scroll (returns early on growth)
 LISTING_RETRIES = 2             # a failed listing page is retried, never silently skipped
+LISTING_PARALLEL = 3            # listing pages loaded concurrently (starts still throttled)
 HOURS_PER_MONTH = 168
 WORKDAYS_PER_MONTH = 21
 
-CONCURRENCY = 4                 # in-flight offer requests
-BASE_INTERVAL = 0.4             # min seconds between ANY two requests (start value)
-JITTER = 0.5                    # + random 0..JITTER seconds
+CONCURRENCY = 6                 # in-flight offer requests
+BASE_INTERVAL = 0.25            # min seconds between ANY two requests (start value)
+JITTER = 0.25                   # + random 0..JITTER seconds
 MAX_INTERVAL = 8.0              # slowest the adaptive throttle will go
 MAX_RETRIES = 3
 MAX_CONSECUTIVE_BLOCKS = 5      # circuit breaker
@@ -55,12 +67,12 @@ MAX_REFRESH_PER_RUN = 25        # cap so refreshes never cause a burst
 PRUNE_AFTER_DAYS = 30           # forget offers not seen in listings for this long
 
 # State lives next to this file (or in JJ_DATA_DIR), NOT in the current working directory.
-# Otherwise a cron job started from another folder silently starts from scratch every run.
 DATA_DIR = Path(os.environ.get("JJ_DATA_DIR", Path(__file__).resolve().parent))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = str(DATA_DIR / "justjoin_state.json")
 STORAGE_STATE_FILE = str(DATA_DIR / "justjoin_browser_state.json")
-SAVE_EVERY = 20
+SAVE_EVERY = 100                # save after this many fetched offers...
+SAVE_INTERVAL_S = 60            # ...or after this many seconds, whichever comes first
 STATE_VERSION = 2               # bump to force a one-time re-fetch of all cached offers
 RAW_OUTPUT_FILE = str(DATA_DIR / "justjoin_raw.json")
 
@@ -75,6 +87,23 @@ LD_RE = re.compile(
 )
 NEXT_RE = re.compile(
     r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', re.S | re.I
+)
+
+# One browser round trip per scroll pass: links, element count and page height together.
+SNAPSHOT_JS = """
+sel => {
+  const els = [...document.querySelectorAll(sel)];
+  return {
+    hrefs: [...new Set(els.map(e => e.href))],
+    count: els.length,
+    height: document.body.scrollHeight,
+  };
+}
+"""
+# Resolves as soon as the page grew or the set of link elements changed.
+PROGRESS_JS = (
+    "([h, n, sel]) => document.body.scrollHeight > h "
+    "|| document.querySelectorAll(sel).length !== n"
 )
 
 
@@ -313,11 +342,33 @@ def load_state():
         return {"offers": {}}
 
 
-def save_state(state):
+def _write_state(snapshot):
     tmp = STATE_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False)
+        json.dump(snapshot, f, ensure_ascii=False)
     os.replace(tmp, STATE_FILE)  # atomic: a crash never leaves a corrupt file
+
+
+class Saver:
+    """Writes the state file in a worker thread so serialising a big JSON never blocks
+    the event loop. Offer entries are replaced wholesale (never mutated in place) while
+    fetching, so a shallow snapshot of the offers dict is safe to dump from a thread."""
+
+    def __init__(self, state):
+        self.state = state
+        self.lock = asyncio.Lock()
+        self.last = time.monotonic()
+
+    def due(self, fetched):
+        return fetched % SAVE_EVERY == 0 or time.monotonic() - self.last >= SAVE_INTERVAL_S
+
+    async def save(self, force=False):
+        if self.lock.locked() and not force:
+            return  # a save is already running; the next trigger will catch up
+        async with self.lock:
+            snapshot = {**self.state, "offers": dict(self.state["offers"])}
+            await asyncio.to_thread(_write_state, snapshot)
+            self.last = time.monotonic()
 
 
 def is_stale(entry):
@@ -356,17 +407,24 @@ async def collect_offer_urls(page_num, context, throttle, ctl):
         # virtualized list (which removes off-screen cards) can't lose any.
         found, stable = {}, 0
         for _ in range(MAX_SCROLL_PASSES):
-            hrefs = await page.eval_on_selector_all(
-                LINK_SELECTOR, "els => [...new Set(els.map(e => e.href))]"
-            )
+            snap = await page.evaluate(SNAPSHOT_JS, LINK_SELECTOR)
             before = len(found)
-            for h in hrefs:
+            for h in snap["hrefs"]:
                 found.setdefault(normalize_url(h, url), None)
             stable = stable + 1 if len(found) == before else 0
             if stable >= 2:
                 break
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(500)
+            try:
+                # returns the moment new content shows up instead of sleeping a fixed time
+                await page.wait_for_function(
+                    PROGRESS_JS,
+                    arg=[snap["height"], snap["count"], LINK_SELECTOR],
+                    timeout=SCROLL_WAIT_MS,
+                    polling=50,
+                )
+            except Exception:
+                pass  # nothing new within the window: counts toward 'stable'
         ctl.ok()
         return list(found), "ok"
     except Exception as e:
@@ -376,33 +434,46 @@ async def collect_offer_urls(page_num, context, throttle, ctl):
         await page.close()
 
 
+async def load_listing_page(page_num, context, throttle, ctl):
+    """One listing page with retries. A failed page is retried, never silently skipped."""
+    status, urls = "failed", []
+    for attempt in range(LISTING_RETRIES + 1):
+        if ctl.abort.is_set():
+            break
+        urls, status = await collect_offer_urls(page_num, context, throttle, ctl)
+        if status != "failed":
+            break
+        await asyncio.sleep(3 * (attempt + 1) + random.uniform(0, 2))
+    return urls, status
+
+
 async def collect_all_offer_urls(context, throttle, ctl):
-    """Walks EVERY listing page until the site runs out. Returns (urls, complete)."""
+    """Walks EVERY listing page until the site runs out, LISTING_PARALLEL pages at a time.
+    Results are consumed in page order, so the output order matches the sequential crawl.
+    Returns (urls, complete)."""
     ordered, seen = [], set()
-    for n in range(1, MAX_LISTING_PAGES + 1):
-        status, urls = "failed", []
-        for attempt in range(LISTING_RETRIES + 1):
-            if ctl.abort.is_set():
-                break
-            urls, status = await collect_offer_urls(n, context, throttle, ctl)
-            if status != "failed":
-                break
-            await asyncio.sleep(3 * (attempt + 1) + random.uniform(0, 2))
+    n = 1
+    while n <= MAX_LISTING_PAGES:
+        batch = list(range(n, min(n + LISTING_PARALLEL, MAX_LISTING_PAGES + 1)))
+        results = await asyncio.gather(
+            *(load_listing_page(p, context, throttle, ctl) for p in batch)
+        )
+        for p, (urls, status) in zip(batch, results):
+            if status == "failed":
+                print(f"!! Listing page {p} could not be loaded: the offer list is INCOMPLETE.")
+                return ordered, False
+            if status == "end" and p == 1:
+                print("!! First listing page shows no offers (blocked or layout changed).")
+                return ordered, False
 
-        if status == "failed":
-            print(f"!! Listing page {n} could not be loaded: the offer list is INCOMPLETE.")
-            return ordered, False
-        if status == "end" and n == 1:
-            print("!! First listing page shows no offers (blocked or layout changed).")
-            return ordered, False
-
-        new = [u for u in urls if u not in seen]
-        if status == "end" or not new:  # no more pages
-            print(f"Reached the end of the listings after {n - 1} pages.")
-            return ordered, True
-        seen.update(new)
-        ordered.extend(new)
-        print(f"  page {n}: +{len(new)} offers ({len(ordered)} total)")
+            new = [u for u in urls if u not in seen]
+            if status == "end" or not new:  # no more pages
+                print(f"Reached the end of the listings after {p - 1} pages.")
+                return ordered, True
+            seen.update(new)
+            ordered.extend(new)
+            print(f"  page {p}: +{len(new)} offers ({len(ordered)} total)")
+        n += LISTING_PARALLEL
 
     print(f"!! Hit MAX_LISTING_PAGES={MAX_LISTING_PAGES}; raise it if the site has more pages.")
     return ordered, False
@@ -462,7 +533,7 @@ async def fetch_offer_html(context, url, throttle, sem, ctl):
         return None
 
 
-async def process_offer(context, url, throttle, sem, ctl, state, counter, debug_state):
+async def process_offer(context, url, throttle, sem, ctl, state, saver, counter, debug_state):
     body = await fetch_offer_html(context, url, throttle, sem, ctl)
     if not body:
         return
@@ -478,6 +549,7 @@ async def process_offer(context, url, throttle, sem, ctl, state, counter, debug_
     raw, schema = build_records(url, jp, body)
     old = state["offers"].get(url, {})
     now = now_iso()
+    # replaced wholesale, never mutated in place (keeps the threaded snapshot safe)
     state["offers"][url] = {
         "raw": raw,
         "schema": schema,
@@ -487,8 +559,8 @@ async def process_offer(context, url, throttle, sem, ctl, state, counter, debug_
         "v": STATE_VERSION,
     }
     counter["n"] += 1
-    if counter["n"] % SAVE_EVERY == 0:
-        save_state(state)
+    if saver.due(counter["n"]):
+        await saver.save()
         print(f"  ...{counter['n']} offers fetched so far")
 
 
@@ -502,6 +574,7 @@ async def _block_heavy(route):
 # ------------------------------------------------------------------ main
 async def fetch_justjoin_listings():
     state = load_state()
+    saver = Saver(state)
     throttle, ctl = Throttle(), Control()
     counter, debug_state = {"n": 0}, {"dumped": False}
 
@@ -548,7 +621,9 @@ async def fetch_justjoin_listings():
             try:
                 await asyncio.gather(
                     *(
-                        process_offer(context, u, throttle, sem, ctl, state, counter, debug_state)
+                        process_offer(
+                            context, u, throttle, sem, ctl, state, saver, counter, debug_state
+                        )
                         for u in to_fetch
                     ),
                     return_exceptions=True,
@@ -562,7 +637,7 @@ async def fetch_justjoin_listings():
                             del state["offers"][u]
                     except (KeyError, ValueError):
                         pass
-                save_state(state)
+                await saver.save(force=True)
                 await context.storage_state(path=STORAGE_STATE_FILE)
         finally:
             await browser.close()
