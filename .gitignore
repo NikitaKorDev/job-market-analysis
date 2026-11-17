@@ -1,13 +1,31 @@
-.patchright_profile
-.venv
-justjoin_browser.json
-justjoin_raw.json
-scrapers\bulldogjobs\scraped_links.txt
-scrapers\bulldogjobs\.patchright-profile
-notes.txt
-
+# Python
 __pycache__/
 *.py[cod]
+.venv/
 
-.patchright_profile/
+# Browser profiles (cookies, sessions, caches)
+**/.patchright-profile/
 .patchright_profile*/
+chrome_profile/
+
+# Scrape output and runtime state
+job_data_raw.json
+justjoin_raw.json
+justjoin_browser.json
+*.duckdb
+*.duckdb.wal
+*_cache.jsonl
+pracuj_it_jobs.csv
+scrapers/justjoin/justjoin_state.json
+scrapers/justjoin/justjoin_state.journal
+scrapers/justjoin/justjoin_browser_state.json
+scrapers/justjoin/justjoin_raw.json
+scrapers/bulldogjobs/scraped_links.txt
+debug/
+
+# Scratch
+_probe_*.py
+notes.txt
+
+# Separate repository (reads job_listings.duckdb)
+jobby/
