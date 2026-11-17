@@ -1,8 +1,14 @@
 import re
 import time
+
 from curl_cffi import requests
 
+from scrapers.common import flat_listing, normalize_salary_type, normalize_work_mode
+
 API_URL = "https://www.olx.pl/api/v1/offers/"
+API_PAGE_LIMIT = 40
+CATEGORY_ID = 56  # OLX "Praca > Informatyka" subcategory (4 = all jobs)
+HARD_PAGE_CAP = 100  # safety cap for "walk until empty" mode
 
 HEADERS = {
     "Accept": "*/*",
@@ -11,42 +17,6 @@ HEADERS = {
     "Referer": "https://www.olx.pl/praca/",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 }
-
-# ------------------------------------------------------------------
-# Schema & Validation
-# ------------------------------------------------------------------
-
-def get_listing_schema():
-    return {
-        "title": "",
-        "city": "",
-        "description": "",
-        "salary-month": 0,
-        "salary-hour": 0
-    }
-
-
-def check_listing(listing: dict):
-    schema = get_listing_schema()
-
-    def matches(value, template):
-        if isinstance(template, dict):
-            return (
-                isinstance(value, dict)
-                and set(value) == set(template)
-                and all(matches(value[key], template[key]) for key in template)
-            )
-        if isinstance(template, list):
-            return (
-                isinstance(value, list)
-                and all(matches(item, template[0]) for item in value)
-                if template
-                else isinstance(value, list)
-            )
-        return type(value) is type(template)
-
-    return matches(listing, schema)
-
 
 # ------------------------------------------------------------------
 # Helpers for Filtering & Parsing
@@ -112,10 +82,105 @@ def clean_description(text: str) -> str:
     return " ".join(clean.split())
 
 
+# A conservative list: only names that are unambiguous in a job description.
+TECH_KEYWORDS = [
+    "Python", "JavaScript", "TypeScript", "Java", "Kotlin", "Scala", "Swift",
+    "C++", "C#", "PHP", "Ruby", "Go", "Rust", "SQL", "MySQL", "PostgreSQL",
+    "MongoDB", "Redis", "Docker", "Kubernetes", "AWS", "Azure", "GCP",
+    "Git", "React", "Angular", "Vue.js", "Next.js", "Node.js", "Django",
+    "Flask", "FastAPI", "Spring", "Laravel", "WordPress", "HTML", "CSS",
+    "REST API", "GraphQL", "Linux", "Terraform", "Ansible", "Jenkins",
+    "GitHub Actions", "Machine Learning", "n8n",
+]
+
+
+def extract_technologies(text: str) -> list[str]:
+    """Best-effort technology tags from a free-text description."""
+    if not text:
+        return []
+    found = []
+    for name in TECH_KEYWORDS:
+        pattern = r"(?<![\w])" + re.escape(name) + r"(?![\w])"
+        if re.search(pattern, text, re.IGNORECASE) and name not in found:
+            found.append(name)
+    return found
+
+
+def _param(item: dict, key: str) -> dict:
+    for param in item.get("params", []):
+        if param.get("key") == key:
+            return param
+    return {}
+
+
+def _param_labels(item: dict, keys: tuple[str, ...]) -> list[str]:
+    labels = []
+    for param in item.get("params", []):
+        if param.get("key") not in keys:
+            continue
+        value = param.get("value")
+        if isinstance(value, dict):
+            label = value.get("label")
+            if isinstance(label, list):
+                labels.extend(str(part) for part in label if part)
+            elif label:
+                labels.append(str(label))
+        elif isinstance(value, str) and value:
+            labels.append(value)
+    out = []
+    for label in labels:
+        for part in label.split(","):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
+def extract_currency(item: dict) -> str:
+    value = _param(item, "salary").get("value")
+    if isinstance(value, dict) and value.get("currency"):
+        return str(value["currency"]).upper()
+    return ""
+
+
+def extract_salary_type(item: dict) -> str | None:
+    salary = _param(item, "salary")
+    return normalize_salary_type(salary.get("name") or salary.get("label"))
+
+
+def extract_date(item: dict) -> str:
+    """Prefer the creation date, fall back to the last refresh, ISO date only."""
+    raw = item.get("created_time") or item.get("last_refresh_time") or ""
+    return str(raw)[:10]
+
+
+def extract_company(item: dict) -> str:
+    user = item.get("user") or {}
+    contact = item.get("contact") or {}
+    return str(
+        user.get("company_name") or user.get("name") or contact.get("name") or ""
+    ).strip()
+
+
+def extract_employment_types(item: dict) -> list[str]:
+    return _param_labels(item, ("type", "agreement"))
+
+
+def extract_work_mode(item: dict) -> str | None:
+    labels = _param_labels(item, ("workplace",))
+    mode = normalize_work_mode(", ".join(labels))
+    if mode:
+        return mode
+    remote = _param(item, "remote_recruitment").get("value")
+    if remote in (True, "true", "1"):
+        return "remote"
+    return None
+
+
 def extract_numeric_salary(item: dict) -> tuple[int, int]:
     """
     Extracts salary numbers directly without converting between hourly and monthly rates.
-    Returns (salary_month, salary_hour) as integers.
+    Returns (salary_month, salary_hour); 0 means not disclosed.
     """
     params = item.get("params", [])
     s_from, s_to = None, None
@@ -128,7 +193,7 @@ def extract_numeric_salary(item: dict) -> tuple[int, int]:
             if isinstance(val, dict):
                 s_from = val.get("from")
                 s_to = val.get("to")
-                
+
                 # Check for explicit hourly indicators in type or label
                 type_str = str(val.get("type", "")).lower()
                 label_str = str(val.get("label", "")).lower()
@@ -167,13 +232,24 @@ def extract_numeric_salary(item: dict) -> tuple[int, int]:
 # Main Scraper Function
 # ------------------------------------------------------------------
 
-def fetch_olx_jobs(query: str = "programista", max_pages: int = 3):
-    limit = 40
-    valid_listings = []
+def fetch_olx_jobs(query: str | None = None, max_pages: int | None = None) -> list[dict]:
+    """Fetch IT-related OLX job offers as flat listing dictionaries.
 
-    for page in range(max_pages):
+    Broad mode (default): the OLX IT category, no salary requirement, no search
+    phrase, all API pages walked until the result set is exhausted (the API caps
+    at ~1000 offers). ``max_pages`` is only a safety/debug limit.
+    """
+    limit = API_PAGE_LIMIT
+    listings_out: list[dict] = []
+    seen_ids: set[str] = set()
+    page = 0
+    cap = max_pages if max_pages is not None else HARD_PAGE_CAP
+
+    while page < cap:
         offset = page * limit
-        params = {"offset": offset, "limit": limit, "category_id": 4, "query": query}
+        params = {"offset": offset, "limit": limit, "category_id": CATEGORY_ID}
+        if query:
+            params["query"] = query
 
         print(f"Fetching page {page + 1} (offset={offset})...")
 
@@ -188,53 +264,76 @@ def fetch_olx_jobs(query: str = "programista", max_pages: int = 3):
             response.raise_for_status()
             data = response.json()
 
-            listings = data.get("data", [])
-            if not listings:
+            page_items = data.get("data", [])
+            if not page_items:
                 break
 
-            for item in listings:
+            for item in page_items:
                 title = item.get("title", "")
+                offer_id = item.get("id")
 
-                # 1. Filter out non-IT jobs
+                # 0. Skip duplicates (promoted offers repeat across pages)
+                ident = str(offer_id or item.get("url") or "")
+                if ident and ident in seen_ids:
+                    continue
+                if ident:
+                    seen_ids.add(ident)
+
+                # 1. Filter out non-IT jobs (by title)
                 if not is_it_related(title):
                     continue
 
-                # 2. Extract numeric salary without making cross-conversions
+                # 2. Extract salary; 0/0 becomes None in flat_listing
                 salary_month, salary_hour = extract_numeric_salary(item)
-                if salary_month == 0 and salary_hour == 0:
-                    continue
+                description = clean_description(item.get("description", ""))
+                techs = extract_technologies(description)
 
-                # 3. Construct dictionary strictly conforming to updated schema types
-                listing = {
-                    "title": str(title or ""),
-                    "city": str(item.get("location", {}).get("city", {}).get("name") or ""),
-                    "description": clean_description(item.get("description", "")),
-                    "salary-month": int(salary_month),
-                    "salary-hour": int(salary_hour),
-                }
+                listings_out.append(
+                    flat_listing(
+                        board="olx",
+                        url=str(item.get("url") or ""),
+                        company=extract_company(item),
+                        offer_id=offer_id or "",
+                        title=title,
+                        city=str((item.get("location") or {}).get("city", {}).get("name") or ""),
+                        description=description,
+                        technologies=techs,
+                        salary_month=salary_month,
+                        salary_hour=salary_hour,
+                        currency=extract_currency(item),
+                        salary_type=extract_salary_type(item),
+                        employment_types=extract_employment_types(item),
+                        work_mode=extract_work_mode(item),
+                        application_url=item.get("external_url") or item.get("url"),
+                        date=extract_date(item),
+                    )
+                )
 
-                # 4. Verify against schema validator
-                if check_listing(listing):
-                    valid_listings.append(listing)
-                else:
-                    print(f"Warning: Listing failed schema check: {title}")
+            # Stop once the API's advertised total has been covered.
+            meta = data.get("metadata") or {}
+            total = meta.get("total_elements")
+            if isinstance(total, int) and offset + len(page_items) >= total:
+                break
 
+            page += 1
             time.sleep(1)
 
         except Exception as e:
             print(f"Error fetching page {page + 1}: {e}")
             break
 
-    return valid_listings
+    return listings_out
 
 
 if __name__ == "__main__":
     jobs = fetch_olx_jobs(query="programista", max_pages=2)
 
-    print(f"\nRetrieved {len(jobs)} listings matching schema:\n")
+    print(f"\nRetrieved {len(jobs)} listings:\n")
     for idx, job in enumerate(jobs, 1):
         print(f"{idx}. {job['title']}")
         print(f"   City:         {job['city']}")
         print(f"   Salary Month: {job['salary-month']}")
         print(f"   Salary Hour:  {job['salary-hour']}")
+        print(f"   URL:          {job['url']}")
+        print(f"   Company:      {job['company']}")
         print(f"   Description:  {job['description'][:100]}...\n")

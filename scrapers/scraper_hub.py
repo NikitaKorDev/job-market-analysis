@@ -7,6 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 # Full package paths relative to the project root
+from scrapers.common import utc_now_iso
 from scrapers.olx.olx import fetch_olx_jobs
 from scrapers.pracuj.pracuj import fetch_pracuj_listings
 from scrapers.justjoin import fetch_justjoin_listings
@@ -60,6 +61,28 @@ async def _call(name, fn, kwargs, how, process_pool):
         return None
 
 
+def _as_listings(name: str, result) -> list[dict]:
+    """Normalize a scraper result to a list of flat listing dictionaries.
+
+    The only filtering here is a sanity guard for genuinely broken scrapes
+    (expired redirects, blocked/empty pages): a listing must be a dict and must
+    have both a URL and a title.
+    """
+    if result is None:
+        return []
+    if isinstance(result, tuple):  # unexpected shape: flatten one level
+        result = [item for part in result for item in (part or [])]
+
+    listings = []
+    for listing in result or []:
+        if not isinstance(listing, dict) or not listing.get("url") or not listing.get("title"):
+            continue
+        listing.setdefault("board", name)
+        listing.setdefault("scraped_at", utc_now_iso())
+        listings.append(listing)
+    return listings
+
+
 async def _fetch_all(process_pool):
     names = [name for name, *_ in _SCRAPERS]
     gathered = await asyncio.gather(
@@ -70,27 +93,14 @@ async def _fetch_all(process_pool):
     )
     by_name = dict(zip(names, gathered))
 
-    justjoin = by_name.get("justjoin")
-    justjoin_raw, justjoin_data = justjoin if justjoin else ([], [])
-    if justjoin_raw:
-        try:
-            # "w", not "a": appending JSON documents produces a file no parser can read
-            with open(JUSTJOIN_RAW_FILE, "w", encoding="utf-8") as f:
-                json.dump(justjoin_raw, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Failed to write {JUSTJOIN_RAW_FILE} ({e}), proceeding.")
-
     return {
-        "olx": by_name.get("olx") or [],
-        "pracuj": by_name.get("pracuj") or [],
-        "justjoin": justjoin_data,
-        "nofluff": by_name.get("nofluff") or [],
-        "praca": by_name.get("praca") or [],
-        "bulldogjobs": by_name.get("bulldogjobs") or [],
+        name: _as_listings(name, by_name.get(name))
+        for name in names
     }
 
 
 def fetch_all_listings():
+    print("\n\n\n\n\n")
     with ProcessPoolExecutor(max_workers=1) as process_pool:
         results = asyncio.run(_fetch_all(process_pool))
     for name, data in results.items():

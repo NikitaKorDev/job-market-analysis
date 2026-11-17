@@ -12,6 +12,8 @@ from patchright.async_api import BrowserContext, Locator
 from patchright.async_api import TimeoutError as PWTimeout
 from patchright.async_api import async_playwright
 
+from scrapers.common import flat_listing, normalize_salary_type
+
 BASE_URL = "https://bulldogjob.pl/companies/jobs/s/page,1"
 PAGE_URL = "https://bulldogjob.pl/companies/jobs/s/page,{page}"
 SITE_ROOT = "https://bulldogjob.pl"
@@ -23,57 +25,23 @@ PROFILE_DIR = SCRIPT_DIR / ".patchright-profile"
 
 HOURS_PER_MONTH = 168  # 21 working days * 8h, used for month <-> hour conversion
 
+EMPLOYMENT_NAMES = {
+    "full_time": "Pełny etat",
+    "part_time": "Część etatu",
+    "contractor": "Kontrakt",
+    "temporary": "Praca tymczasowa",
+    "intern": "Staż",
+    "volunteer": "Wolontariat",
+    "per_diem": "Stawka dzienna",
+    "other": "Inna",
+}
+
 # Resilient selectors (wildcards survive hashed CSS-module class changes)
 CARD = 'a[class*="JobListItem_item"]'
 SEL_TITLE = '[class*="JobListItem_item__title"] h3'
 SEL_CITY = '[class*="JobListItem_item__details"] span.text-xs'
 SEL_SALARY = '[class*="JobListItem_item__salary"]'
 SEL_TAGS = '[class*="JobListItem_item__tags"] span'
-
-
-# --------------------------------------------------------------------------- #
-# Schema
-# --------------------------------------------------------------------------- #
-def check_listing(listing: dict):
-    schema = get_listing_schema()
-
-    def matches(value, template):
-        if isinstance(template, dict):
-            return (
-                isinstance(value, dict)
-                and set(value) == set(template)
-                and all(matches(value[key], template[key]) for key in template)
-            )
-        if isinstance(template, list):
-            return (
-                isinstance(value, list)
-                and all(matches(item, template[0]) for item in value)
-                if template
-                else isinstance(value, list)
-            )
-        return type(value) is type(template)
-
-    return matches(listing, schema)
-
-
-def get_listing_schema():
-    """Get a listing schema,
-    title,
-    city,
-    description,
-    technologies (if possible) - The tech stack needed for this job
-    salary-month (if present or if possible to calculate reliably)
-    and salary-hour (if present or possible to calculate reliably)"""
-    return {
-        "title": "",
-        "city": "",
-        "description": "",
-        "technologies": "",
-        "salary-month": 0,
-        "salary-hour": 0,
-        "currency": "",
-        "date": "",
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -86,34 +54,98 @@ async def _text(card: Locator, selector: str) -> str:
     return (await loc.first.inner_text()).strip()
 
 
-def parse_salary(raw: str) -> tuple[int, int, str]:
-    """Return (salary_month, salary_hour, currency) from a card salary string.
+def parse_salary(raw: str) -> tuple[int | None, int | None, str | None, str | None]:
+    """Return (salary_month, salary_hour, currency, salary_type) from a card salary string.
 
     Uses the midpoint of a range. Hourly rates ("/h", "godz") are converted to
-    monthly with HOURS_PER_MONTH, and monthly to hourly. Returns zeros if the
-    string has no numbers.
+    monthly with HOURS_PER_MONTH, and monthly to hourly. None means not disclosed.
     """
     if not raw:
-        return 0, 0, ""
+        return None, None, None, None
 
     text = raw.replace("\u00a0", " ").replace("\u202f", " ")
+    salary_type = normalize_salary_type(text)
 
     cur_m = re.search(r"\b(PLN|EUR|USD|GBP|CHF|CZK)\b|zł", text, re.I)
-    currency = ""
+    currency = None
     if cur_m:
         currency = "PLN" if cur_m.group(0).lower() == "zł" else cur_m.group(0).upper()
 
     nums = [int(n.replace(" ", "")) for n in re.findall(r"\d[\d ]*", text) if n.strip()]
     nums = nums[:2]
     if not nums:
-        return 0, 0, currency
+        return None, None, currency, salary_type
 
     value = round(sum(nums) / len(nums))
     is_hourly = bool(re.search(r"/\s*h\b|/\s*godz|per hour|hourly|\bh\b", text, re.I))
 
     if is_hourly:
-        return value * HOURS_PER_MONTH, value, currency
-    return value, round(value / HOURS_PER_MONTH), currency
+        return value * HOURS_PER_MONTH, value, currency, salary_type
+    return value, round(value / HOURS_PER_MONTH), currency, salary_type
+
+
+def _string_list(value) -> list[str]:
+    """Normalize JSON-LD benefits/skills/employmentType to a list of strings."""
+    if value is None:
+        return []
+
+    def split(text) -> list[str]:
+        return [part.strip() for part in str(text).split(",") if part.strip()]
+
+    if isinstance(value, str):
+        return split(value)
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            if isinstance(item, dict):
+                text = item.get("name") or item.get("value") or ""
+            else:
+                text = item
+            for part in split(text):
+                if part not in out:
+                    out.append(part)
+        return out
+    return split(value)
+
+
+def _salary_from_jsonld(posting: dict):
+    """Fallback salary from a JobPosting baseSalary block."""
+    salary = posting.get("baseSalary")
+    if not isinstance(salary, dict):
+        return None, None, None, None
+
+    currency = str(salary.get("currency") or "").upper() or None
+    value = salary.get("value")
+    if isinstance(value, dict):
+        raw_nums = [value.get("minValue"), value.get("maxValue"), value.get("value")]
+        unit = value.get("unitText") or salary.get("unitText") or ""
+    else:
+        raw_nums = [value]
+        unit = salary.get("unitText") or ""
+
+    nums = [float(n) for n in raw_nums if isinstance(n, (int, float)) and n > 0]
+    if not nums:
+        return None, None, currency, None
+
+    midpoint = sum(nums) / len(nums)
+    unit = str(unit).lower()
+    if "hour" in unit:
+        month, hour = midpoint * HOURS_PER_MONTH, midpoint
+    elif "year" in unit:
+        month, hour = midpoint / 12, midpoint / 12 / HOURS_PER_MONTH
+    else:
+        month, hour = midpoint, midpoint / HOURS_PER_MONTH
+    return int(round(month)), int(round(hour)), currency, None
+
+
+def _seniority(months) -> str | None:
+    if not isinstance(months, (int, float)) or months <= 0:
+        return None
+    if months >= 60:
+        return "senior"
+    if months >= 24:
+        return "mid"
+    return "junior"
 
 
 def _strip_html(raw: str) -> str:
@@ -161,11 +193,12 @@ class LinkStore:
     loses progress and the file never has to be rewritten.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, load_existing: bool = True, persist: bool = True):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.persist = persist
         self._links: set[str] = set()
-        if self.path.exists():
+        if load_existing and self.path.exists():
             lines = self.path.read_text(encoding="utf-8").splitlines()
             self._links = {normalize_url(line.strip()) for line in lines if line.strip()}
 
@@ -179,8 +212,9 @@ class LinkStore:
         if url in self._links:
             return
         self._links.add(url)
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(url + "\n")
+        if self.persist:
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(url + "\n")
 
 
 BLOCK_STATUS = {403, 429, 502, 503, 504}
@@ -285,8 +319,23 @@ async def listing_handler(page, status: int) -> list[dict]:
     return await scrape_cards(page)
 
 
-async def detail_handler(page, status: int) -> tuple[str, str]:
-    """Return (description, date) from a job page. Empty strings if missing."""
+async def detail_handler(page, status: int) -> dict:
+    """Return detail fields from a job page (empty values if missing)."""
+    empty = {
+        "description": "",
+        "date": "",
+        "company": "",
+        "employment_types": [],
+        "seniority": None,
+        "work_mode": None,
+        "benefits": [],
+        "skills": [],
+        "salary_month": None,
+        "salary_hour": None,
+        "currency": None,
+        "salary_type": None,
+    }
+
     blocks = await page.eval_on_selector_all(
         'script[type="application/ld+json"]',
         "els => els.map(e => e.textContent)",
@@ -298,14 +347,37 @@ async def detail_handler(page, status: int) -> tuple[str, str]:
             continue
         if posting:
             description = _strip_html(posting.get("description", "") or "")
-            date = str(posting.get("datePosted", "") or "")[:10]
-            if description:
-                return description, date
+            organization = posting.get("hiringOrganization") or {}
+            company = str(organization.get("name") or "").strip() if isinstance(organization, dict) else ""
+            month, hour, currency, salary_type = _salary_from_jsonld(posting)
+            experience = posting.get("experienceRequirements") or {}
+            months = experience.get("monthsOfExperience") if isinstance(experience, dict) else None
+            work_mode = None
+            if str(posting.get("jobLocationType") or "").upper() == "TELECOMMUTE":
+                work_mode = "remote"
+            return {
+                "description": description,
+                "date": str(posting.get("datePosted", "") or "")[:10],
+                "company": company,
+                "employment_types": [
+                    EMPLOYMENT_NAMES.get(item.lower(), item)
+                    for item in _string_list(posting.get("employmentType"))
+                ],
+                "seniority": _seniority(months),
+                "work_mode": work_mode,
+                "benefits": _string_list(posting.get("benefits") or posting.get("jobBenefits")),
+                "skills": _string_list(posting.get("skills")),
+                "salary_month": month,
+                "salary_hour": hour,
+                "currency": currency,
+                "salary_type": salary_type,
+            }
 
     meta = await page.evaluate(
         "() => document.querySelector('meta[name=description]')?.content || ''"
     )
-    return meta.strip(), ""
+    empty["description"] = meta.strip()
+    return empty
 
 
 async def scrape_cards(page) -> list[dict]:
@@ -315,7 +387,7 @@ async def scrape_cards(page) -> list[dict]:
     for i in range(await cards.count()):
         card = cards.nth(i)
         salary_raw = await _text(card, SEL_SALARY)
-        month, hour, currency = parse_salary(salary_raw)
+        month, hour, currency, salary_type = parse_salary(salary_raw)
         tags = [t.strip() for t in await card.locator(SEL_TAGS).all_inner_texts()]
         href = await card.get_attribute("href") or ""
 
@@ -324,10 +396,11 @@ async def scrape_cards(page) -> list[dict]:
                 "url": normalize_url(urljoin(SITE_ROOT, href)),
                 "title": await _text(card, SEL_TITLE),
                 "city": await _text(card, SEL_CITY),
-                "technologies": ", ".join(t for t in tags if t),
+                "technologies": [t for t in tags if t],
                 "salary-month": month,
                 "salary-hour": hour,
                 "currency": currency,
+                "salary_type": salary_type,
             }
         )
     return out
@@ -350,6 +423,7 @@ async def fetch_bulldog_jobs(
     concurrency: int = 6,
     rps: float = 4.0,
     links_file: Path = LINKS_FILE,
+    rebuild: bool = False,
 ) -> list[dict]:
     """Scrape BulldogJob concurrently, skipping listings scraped in earlier runs.
 
@@ -363,9 +437,13 @@ async def fetch_bulldog_jobs(
     concurrency  -- max simultaneously open tabs
     rps          -- max request starts per second (auto-lowered on 403/429/5xx)
     links_file   -- where already-scraped links are stored
+    rebuild      -- ignore `links_file` entirely (re-scrape and do not write it)
     """
-    store = LinkStore(links_file)
-    print(f"{len(store)} listings already scraped ({store.path})")
+    store = LinkStore(links_file, load_existing=not rebuild, persist=not rebuild)
+    if rebuild:
+        print("Rebuild mode: ignoring previously scraped links")
+    else:
+        print(f"{len(store)} listings already scraped ({store.path})")
 
     throttle = Throttle(concurrency, rps)
     raw_jobs: list[dict] = []
@@ -419,7 +497,7 @@ async def fetch_bulldog_jobs(
                 print(f"WARNING: listing pages that failed after retries: {failed_pages}")
 
             # ---- phase 2: detail pages, all queued, throttle keeps it safe ----
-            details: list[tuple[str, str] | None]
+            details: list[dict | None]
             if with_details and raw_jobs:
                 print(f"Fetching {len(raw_jobs)} detail pages...")
 
@@ -433,7 +511,7 @@ async def fetch_bulldog_jobs(
             else:
                 for job in raw_jobs:
                     store.add(job["url"])
-                details = [("", "")] * len(raw_jobs)
+                details = [{} for _ in raw_jobs]
         finally:
             await context.close()
 
@@ -443,18 +521,42 @@ async def fetch_bulldog_jobs(
         if detail is None:  # not stored -> will be retried next run
             failed_details += 1
             continue
-        description, date = detail
+        detail = detail or {}
+
+        salary_month = job["salary-month"] or detail.get("salary_month")
+        salary_hour = job["salary-hour"] or detail.get("salary_hour")
+        currency = job["currency"] or detail.get("currency")
+        salary_type = job["salary_type"] or detail.get("salary_type")
+
+        technologies = list(dict.fromkeys(
+            list(job.get("technologies") or []) + list(detail.get("skills") or [])
+        ))
+
+        work_mode = detail.get("work_mode")
+        if not work_mode and "remote" in str(job.get("city") or "").lower():
+            work_mode = "remote"
+
         listings.append(
-            {
-                "title": job["title"],
-                "city": job["city"],
-                "description": description,
-                "technologies": job["technologies"],
-                "salary-month": job["salary-month"],
-                "salary-hour": job["salary-hour"],
-                "currency": job["currency"],
-                "date": date,
-            }
+            flat_listing(
+                board="bulldogjobs",
+                url=job["url"],
+                company=detail.get("company") or "",
+                offer_id=job["url"].rstrip("/").rsplit("/", 1)[-1],
+                title=job["title"],
+                city=job["city"],
+                description=detail.get("description") or "",
+                technologies=technologies,
+                salary_month=salary_month,
+                salary_hour=salary_hour,
+                currency=currency,
+                salary_type=salary_type,
+                employment_types=detail.get("employment_types") or [],
+                seniority=detail.get("seniority"),
+                work_mode=work_mode,
+                application_url=job["url"],
+                benefits=detail.get("benefits") or [],
+                date=detail.get("date"),
+            )
         )
     if failed_details:
         print(f"{failed_details} listings failed and will be retried next run")
@@ -462,7 +564,6 @@ async def fetch_bulldog_jobs(
 
 
 if __name__ == "__main__":
-    results = asyncio.run(fetch_bulldog_jobs(max_pages=2))
-    valid = [r for r in results if check_listing(r)]
-    print(f"{len(valid)}/{len(results)} listings match the schema")
+    results = asyncio.run(fetch_bulldog_jobs(max_pages=2, rebuild=True))
+    print(f"{len(results)} listings scraped")
     print(json.dumps(results[:3], indent=2, ensure_ascii=False))

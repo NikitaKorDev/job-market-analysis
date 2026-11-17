@@ -1,13 +1,18 @@
 import asyncio
 import csv
+import json
 import os
 import random
 import re
+import time
 import unicodedata
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from bs4 import BeautifulSoup
+from curl_cffi.requests import AsyncSession
 from patchright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+
+from scrapers.common import flat_listing, normalize_salary_type, normalize_work_mode
 
 CSV_FILENAME = "pracuj_it_jobs.csv"
 PROFILE_DIR = "./chrome_profile"   # persistent Chrome profile (keeps cookies/consent)
@@ -19,6 +24,29 @@ CONCURRENCY_LIMIT = 2              # keep low: many parallel tabs look like a bo
 MAX_RETRIES = 3                    # attempts per page before giving up on it
 HARD_PAGE_CAP = 500                # safety cap for sequential "until empty" mode
 MAX_EMPTY_IN_A_ROW = 2             # sequential mode: stop after this many empty pages
+HOURS_PER_MONTH = 168
+
+# Detail pages are plain HTTP (curl_cffi), not browser tabs.
+DETAIL_CONCURRENCY = 12            # was 4. Lower it if you start seeing 403/429.
+DETAIL_RETRIES = 2
+DETAIL_TIMEOUT = 15                # was 20; a hung request no longer blocks a slot for long
+DETAIL_RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+DETAIL_CACHE = "./pracuj_detail_cache.jsonl"
+DETAIL_CACHE_TTL_DAYS = 7          # cached details older than this are re-fetched
+DETAIL_SECTIONS = {
+    "about-project",
+    "responsibilities",
+    "requirements-expected",
+    "requirements-optional",
+    "offered",
+    "training-space",
+    "work-organization-work-style",
+    "work-organization-work-time",
+    "work-organization-work-mode",
+    "technologies-expected",
+    "technologies-optional",
+}
+CURRENCY_RE = re.compile(r"\b(PLN|EUR|USD|GBP|CHF|CZK)\b|zł", re.I)
 
 BASE_URL = (
     "https://it.pracuj.pl/praca?its=backend%2Cfrontend%2Cfullstack%2Cmobile%2Carchitecture%2Cdevops%2Cgamedev%2Cdata-analytics-and-bi%2Cbig-data-science%2Cux-ui%2Cbusiness-analytics%2Cagile%2Cproject-management%2Cproduct-management%2Cai-ml%2Cit-admin%2Csecurity%2Chelpdesk%2Ctesting%2Cembedded%2Csystem-analytics%2Csap-erp"
@@ -68,6 +96,333 @@ def parse_salary_number(text: str) -> int:
     return int(sum(nums) / len(nums))
 
 
+def parse_currency(text: str) -> str:
+    if not text:
+        return ""
+    match = CURRENCY_RE.search(text)
+    if not match:
+        return ""
+    token = match.group(0)
+    return "PLN" if token.lower() == "zł" else token.upper()
+
+
+def _next_data(html: str) -> dict:
+    match = re.search(
+        r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S | re.I
+    )
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _offer_data(html: str) -> dict:
+    payload = _next_data(html)
+    try:
+        queries = payload["props"]["pageProps"]["dehydratedState"]["queries"]
+        return queries[0]["state"]["data"] or {}
+    except (KeyError, IndexError, TypeError):
+        return {}
+
+
+def _salary_from_employment(employment: dict) -> tuple[int | None, int | None, str | None, str | None]:
+    """Pick the first contract that discloses a salary and normalize it."""
+    for contract in employment.get("typesOfContracts") or []:
+        if not isinstance(contract, dict):
+            continue
+        salary = contract.get("salary")
+        if not isinstance(salary, dict):
+            continue
+        values = [
+            value
+            for value in (salary.get("from"), salary.get("to"))
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+        ]
+        if not values:
+            continue
+        midpoint = sum(values) / len(values)
+        unit = str((((salary.get("timeUnit") or {}).get("shortForm") or {}).get("name") or "")).lower()
+        if "godz" in unit or "/h" in unit:
+            month, hour = midpoint * HOURS_PER_MONTH, midpoint
+        else:
+            month, hour = midpoint, midpoint / HOURS_PER_MONTH
+        kind = (salary.get("salaryKind") or {}).get("name")
+        currency = (salary.get("currency") or {}).get("code")
+        return int(round(month)), int(round(hour)), currency, normalize_salary_type(kind)
+    return None, None, None, None
+
+
+def _benefits_from_sections(sections: list) -> list[str]:
+    for section in sections:
+        if not isinstance(section, dict) or section.get("sectionType") != "benefits":
+            continue
+        elements = section.get("textElements")
+        if isinstance(elements, list):
+            values = [clean_text(str(item)) for item in elements]
+            values = [value for value in values if value]
+            if values:
+                return list(dict.fromkeys(values))
+        text = clean_text(section.get("plainText") or "")
+        if text:
+            return [part.strip() for part in re.split(r"[,;\n]", text) if part.strip()]
+    return []
+
+
+def _detail_from_html(html: str) -> dict:
+    """Extract full description, technologies, employer, salary and metadata."""
+    data = _offer_data(html)
+    attributes = data.get("attributes") or {}
+    sections = data.get("textSections") or []
+    posting = _jobposting_jsonld(html) or {}
+
+    chunks = []
+    if attributes.get("description"):
+        chunks.append(clean_text(attributes["description"]))
+
+    technologies = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        section_type = str(section.get("sectionType") or "")
+        text = clean_text(section.get("plainText") or "")
+        if section_type in DETAIL_SECTIONS and text:
+            chunks.append(text)
+        if section_type in ("technologies-expected", "technologies-optional"):
+            for item in section.get("textElements") or []:
+                item = clean_text(str(item))
+                if item and item not in technologies:
+                    technologies.append(item)
+
+    description = "\n\n".join(dict.fromkeys(chunk for chunk in chunks if chunk))
+
+    date_posted = str(posting.get("datePosted") or attributes.get("datePosted") or "")[:10]
+
+    organization = posting.get("hiringOrganization") or {}
+    company = clean_text(str(attributes.get("displayEmployerName") or ""))
+    if not company and isinstance(organization, dict):
+        company = clean_text(str(organization.get("name") or ""))
+
+    employment = attributes.get("employment") or {}
+    salary_month, salary_hour, salary_currency, salary_type = _salary_from_employment(employment)
+
+    salary = posting.get("baseSalary") or {}
+    currency = salary_currency
+    if not currency and isinstance(salary, dict):
+        currency = str(salary.get("currency") or "").upper() or None
+
+    contract_names = [
+        contract.get("name")
+        for contract in employment.get("typesOfContracts") or []
+        if isinstance(contract, dict)
+    ]
+    schedule_names = [
+        schedule.get("name")
+        for schedule in employment.get("workSchedules") or []
+        if isinstance(schedule, dict)
+    ]
+    employment_types = [
+        name for name in dict.fromkeys(contract_names + schedule_names) if name
+    ]
+
+    levels = employment.get("positionLevels") or []
+    seniority = levels[0].get("name") if levels and isinstance(levels[0], dict) else None
+
+    if employment.get("entirelyRemoteWork"):
+        work_mode = "remote"
+    else:
+        mode_names = [
+            mode.get("name")
+            for mode in employment.get("workModes") or []
+            if isinstance(mode, dict)
+        ]
+        work_mode = normalize_work_mode(", ".join(name for name in mode_names if name))
+
+    applying = attributes.get("applying") or {}
+
+    return {
+        "description": description,
+        "technologies": technologies,
+        "company": company,
+        "url": str(attributes.get("offerAbsoluteUrl") or ""),
+        "date": date_posted,
+        "currency": currency,
+        "salary_month": salary_month,
+        "salary_hour": salary_hour,
+        "salary_type": salary_type,
+        "employment_types": employment_types,
+        "seniority": seniority,
+        "work_mode": work_mode,
+        "application_url": applying.get("applyUrl") or "",
+        "benefits": _benefits_from_sections(sections),
+    }
+
+
+def _jobposting_jsonld(html: str) -> dict | None:
+    """Find the schema.org JobPosting block on a pracuj offer page."""
+    for block in re.findall(
+        r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.S | re.I
+    ):
+        try:
+            payload = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        stack = [payload]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                if item.get("@type") == "JobPosting":
+                    return item
+                stack.extend(item.values())
+            elif isinstance(item, list):
+                stack.extend(item)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Detail enrichment (shared async session, dedupe, disk cache)
+# --------------------------------------------------------------------------- #
+def _load_detail_cache() -> dict[str, dict]:
+    """url -> parsed detail dict, for entries newer than the TTL."""
+    cache: dict[str, dict] = {}
+    if not os.path.exists(DETAIL_CACHE):
+        return cache
+    cutoff = time.time() - DETAIL_CACHE_TTL_DAYS * 86400
+    with open(DETAIL_CACHE, encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # half-written last line after a crash
+            if rec.get("url") and rec.get("detail") and rec.get("ts", 0) >= cutoff:
+                cache[rec["url"]] = rec["detail"]
+    return cache
+
+
+def _apply_detail(listing: dict, detail: dict) -> None:
+    """Merge a parsed detail-page record into a listing, in place."""
+    if detail["description"]:
+        listing["description"] = detail["description"]
+    if detail["technologies"]:
+        listing["technologies_list"] = detail["technologies"]
+        listing["technologies"] = ", ".join(detail["technologies"])
+    if detail["company"]:
+        listing["company"] = detail["company"]
+    if detail["url"]:
+        listing["url"] = detail["url"]
+    if detail["date"]:
+        listing["date"] = detail["date"]
+    if detail["currency"]:
+        listing["currency"] = detail["currency"]
+    if detail["salary_month"] is not None:
+        listing["salary-month"] = detail["salary_month"]
+    if detail["salary_hour"] is not None:
+        listing["salary-hour"] = detail["salary_hour"]
+    if detail["salary_type"]:
+        listing["salary_type"] = detail["salary_type"]
+    if detail["employment_types"]:
+        listing["employment_types"] = detail["employment_types"]
+    if detail["seniority"]:
+        listing["seniority"] = detail["seniority"]
+    if detail["work_mode"]:
+        listing["work_mode"] = detail["work_mode"]
+    if detail["application_url"]:
+        listing["application_url"] = detail["application_url"]
+    if detail["benefits"]:
+        listing["benefits"] = detail["benefits"]
+
+
+async def _fetch_detail(session: AsyncSession, url: str) -> dict | None:
+    """Fetch + parse one detail page over a shared, connection-reusing session."""
+    for attempt in range(DETAIL_RETRIES + 1):
+        retry_after = 0.0
+        try:
+            response = await session.get(url, timeout=DETAIL_TIMEOUT)
+            if response.status_code == 200:
+                # Parsing a large page is CPU work: keep it off the event loop.
+                return await asyncio.to_thread(_detail_from_html, response.text)
+            if response.status_code not in DETAIL_RETRY_STATUSES:
+                return None  # 404/410 etc: the offer is gone, retrying is pointless
+            header = response.headers.get("Retry-After", "")
+            retry_after = float(header) if header.isdigit() else 0.0
+        except Exception:
+            pass
+
+        if attempt < DETAIL_RETRIES:
+            await asyncio.sleep(max(retry_after, 1.5 * (attempt + 1)) + random.random())
+    return None
+
+
+async def enrich_details(listings: list[dict]) -> None:
+    """Fill detail-page fields in place. Dedupes URLs, uses a disk cache, one shared session."""
+    by_url: dict[str, list[dict]] = {}
+    for listing in listings:
+        url = listing.get("url") or ""
+        if url:
+            by_url.setdefault(url, []).append(listing)
+
+    cache = _load_detail_cache()
+    pending: list[str] = []
+    for url, group in by_url.items():
+        detail = cache.get(url)
+        if detail:
+            for listing in group:
+                _apply_detail(listing, detail)
+        else:
+            pending.append(url)
+
+    print(
+        f"[pracuj] details: {len(by_url)} unique urls "
+        f"({len(listings) - len(by_url)} duplicates), "
+        f"{len(by_url) - len(pending)} from cache, {len(pending)} to fetch"
+    )
+    if not pending:
+        return
+
+    semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+    total = len(pending)
+    done = failed = 0
+    started = time.monotonic()
+
+    async with AsyncSession(
+        impersonate="chrome124",
+        headers={"Accept-Language": "pl-PL,pl;q=0.9"},
+        max_clients=DETAIL_CONCURRENCY,
+    ) as session:
+        with open(DETAIL_CACHE, "a", encoding="utf-8") as cache_fh:
+
+            async def one(url: str) -> None:
+                nonlocal done, failed
+                async with semaphore:
+                    detail = await _fetch_detail(session, url)
+
+                done += 1
+                if detail:
+                    # The cache is keyed by the ORIGINAL url (before _apply_detail may rewrite it).
+                    cache_fh.write(
+                        json.dumps({"url": url, "ts": time.time(), "detail": detail}, ensure_ascii=False) + "\n"
+                    )
+                    cache_fh.flush()  # a crash at 90% keeps the 90%
+                    for listing in by_url[url]:
+                        _apply_detail(listing, detail)
+                else:
+                    failed += 1
+
+                if done % 100 == 0 or done == total:
+                    rate = done / max(time.monotonic() - started, 1e-6)
+                    eta = (total - done) / rate if rate else 0
+                    print(
+                        f"[pracuj] details {done}/{total} "
+                        f"({rate:.1f}/s, ~{eta / 60:.1f} min left, {failed} failed)"
+                    )
+
+            await asyncio.gather(*(one(url) for url in pending))
+
+
+# --------------------------------------------------------------------------- #
+# Results-page helpers
+# --------------------------------------------------------------------------- #
 def extract_max_pages(soup: BeautifulSoup) -> int | None:
     """
     Returns the total page count, or None if it can't be determined reliably.
@@ -210,6 +565,7 @@ def parse_card(card: BeautifulSoup) -> tuple[dict, dict] | None:
         "company": company,
         "url": clean_url,
     }
+    # Intermediate record; build_listings() turns it into a flat dictionary.
     formatted = {
         "title": title,
         "city": city,
@@ -217,9 +573,36 @@ def parse_card(card: BeautifulSoup) -> tuple[dict, dict] | None:
         "technologies": ", ".join(tech_list),
         "salary-month": fmt_month,
         "salary-hour": fmt_hour,
+        "currency": parse_currency(salary_text),
+        "salary_type": normalize_salary_type(salary_text),
         "date": date_str,
     }
     return raw, formatted
+
+
+def build_listings(parsed: list[tuple[dict, dict]]) -> list[dict]:
+    """Pair each raw CSV row with its card record and emit flat listings."""
+    listings = []
+    for raw, formatted in parsed:
+        listings.append(
+            flat_listing(
+                board="pracuj",
+                url=str(raw.get("url") or ""),
+                company=str(raw.get("company") or ""),
+                offer_id=raw.get("offer_id") or "",
+                title=formatted.get("title") or "",
+                city=formatted.get("city") or "",
+                description=formatted.get("description") or "",
+                technologies=formatted.get("technologies") or [],
+                salary_month=formatted.get("salary-month"),
+                salary_hour=formatted.get("salary-hour"),
+                currency=formatted.get("currency"),
+                salary_type=formatted.get("salary_type"),
+                date=formatted.get("date"),
+                application_url=raw.get("url"),
+            )
+        )
+    return listings
 
 
 # --------------------------------------------------------------------------- #
@@ -232,7 +615,7 @@ class CsvSink:
         self.filename = filename
         self.lock = asyncio.Lock()
         self.seen: set[str] = set()
-        self.has_content = os.path.exists(filename) and os.path.getsize(filename) > 0
+        self.has_content = os.path.exists(filename) and os.path.getsize(filename) > 0 # If file exists in path and its size is 0 > === its not empty
 
         if self.has_content:
             with open(filename, mode="r", encoding="utf-8", newline="") as f:
@@ -311,7 +694,7 @@ async def load_page_cards(context, target_url: str, page_num: int):
 
 
 async def scrape_page(context, target_url: str, page_num: int, sink: CsvSink):
-    """Scrapes one page with retries. Returns (formatted_jobs, soup) or ([], None) on failure."""
+    """Scrapes one page with retries. Returns (flat listings, soup) or ([], None) on failure."""
     for attempt in range(1, MAX_RETRIES + 1):
         # Small random delay so requests don't arrive in a perfectly regular pattern
         await asyncio.sleep(random.uniform(0.5, 1.5))
@@ -322,10 +705,9 @@ async def scrape_page(context, target_url: str, page_num: int, sink: CsvSink):
             parsed = [p for p in (parse_card(c) for c in cards) if p]
             if parsed:
                 raw_jobs = [r for r, _ in parsed]
-                formatted_jobs = [f for _, f in parsed]
                 added = await sink.save(raw_jobs)
                 print(f"[Page {page_num}] Parsed {len(parsed)} cards, {added} new rows saved.")
-                return formatted_jobs, soup
+                return build_listings(parsed), soup
 
         if attempt < MAX_RETRIES:
             backoff = 2 * attempt + random.random()
@@ -402,14 +784,18 @@ async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) 
 
             if failed_pages:
                 print(f"\nPages with no results after retries: {failed_pages}")
-            print(f"\nExtracted {len(all_listings)} formatted listings total.")
+            print(f"\nExtracted {len(all_listings)} listings total.")
 
         finally:
             await context.close()
+
+    print(f"[pracuj] Fetching detail pages for {len(all_listings)} listings...")
+    await enrich_details(all_listings)
 
     return all_listings
 
 
 if __name__ == "__main__":
     listings = asyncio.run(fetch_pracuj_listings(max_pages=0))
-    print(f"Sample formatted listing: {listings[0] if listings else 'No listings'}")
+    print(f"Retrieved {len(listings)} listings")
+    print(f"Sample: {listings[0] if listings else 'No listings'}")
