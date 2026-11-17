@@ -59,6 +59,6 @@ data and are not committed.
 
 ## Related
 
-[jobby](jobby/) is kept in a separate repository. It reads
+[jobby](https://github.com/NikitaKorDev/jobby) is kept in a separate repository. It reads
 `job_listings.duckdb` and uses a local Ollama model to rank listings against
 a resume.
