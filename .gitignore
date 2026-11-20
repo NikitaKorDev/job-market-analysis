@@ -10,6 +10,7 @@ chrome_profile/
 
 # Scrape output and runtime state
 job_data_raw.json
+*.backup-*.json
 justjoin_raw.json
 justjoin_browser.json
 *.duckdb

@@ -5,6 +5,7 @@ enforces the final schema in the ingestion phase; this module only keeps the
 shape and types consistent between scrapers.
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -86,18 +87,111 @@ def normalize_salary_type(value: Any) -> str | None:
     return None
 
 
+# Work-mode signals. ``work_mode`` is remote ONLY when the offer is fully
+# remote; "remote possible" next to an office / hybrid option is hybrid.
+_REMOTE_MARKERS = ("zdaln", "remote", "telecommute", "home office", "home-office")
+_HYBRID_MARKERS = ("hybryd", "hybrid")
+_OFFICE_MARKERS = ("stacjonar", "office", "on-site", "onsite", "on site", "siedzib", "w biurze")
+# Phrases that mean "remote is possible / partial", not "fully remote".
+_PARTIAL_REMOTE_MARKERS = (
+    "możliwa praca zdalna",
+    "możliwość pracy zdalnej",
+    "częściowo zdaln",
+    "remote possible",
+    "partially remote",
+    "partly remote",
+    "remote optional",
+    "occasional remote",
+)
+WORK_MODES = ("remote", "hybrid", "office")
+
+
 def normalize_work_mode(value: Any) -> str | None:
-    """Map free-text work modes to remote / hybrid / office."""
+    """Map free-text work modes to remote / hybrid / office.
+
+    ``remote`` means FULLY remote. Rules, in order:
+    - an explicit hybrid marker -> hybrid;
+    - "remote possible" style phrases -> hybrid;
+    - remote together with an office/on-site option -> hybrid;
+    - remote alone -> remote; office alone -> office.
+    Lists are joined, so ``["praca stacjonarna", "praca zdalna"]`` -> hybrid.
+    """
+    if isinstance(value, (list, tuple, set)):
+        value = ", ".join(_text(item) for item in value if _text(item))
     text = _text(value).lower()
     if not text:
         return None
-    if "zdaln" in text or "remote" in text:
-        return "remote"
-    if "hybryd" in text or "hybrid" in text:
+    if text in WORK_MODES:
+        return text
+    if any(marker in text for marker in _HYBRID_MARKERS):
         return "hybrid"
-    if "stacjonar" in text or "office" in text or "siedzib" in text:
+    if any(marker in text for marker in _PARTIAL_REMOTE_MARKERS):
+        return "hybrid"
+    remote = any(marker in text for marker in _REMOTE_MARKERS)
+    office_text = text.replace("home office", "").replace("home-office", "")
+    office = any(marker in office_text for marker in _OFFICE_MARKERS)
+    if remote and office:
+        return "hybrid"
+    if remote:
+        return "remote"
+    if office:
         return "office"
     return None
+
+
+# Canonical seniority levels, in order. ``seniority_levels`` is always an
+# ordered subset of these.
+SENIORITY_LEVELS = ("intern", "junior", "mid", "senior", "lead", "expert", "manager")
+
+# (level, markers) checked in this order for every part of the board's text;
+# the first match wins, so "młodszy specjalista" is junior and
+# "starszy specjalista" senior before the generic "specjalista" -> mid.
+_SENIORITY_RULES = (
+    ("intern", ("intern", "trainee", "staż", "staz", "praktyk", "apprentice")),
+    ("junior", ("junior", "młodsz", "mlodsz", "asystent", "assistant", "entry")),
+    ("senior", ("senior", "starszy", "starsza")),
+    ("lead", ("lead", "lider", "leader")),
+    ("expert", ("expert", "ekspert", "principal", "master", "architect")),
+    (
+        "manager",
+        (
+            "manager", "menedżer", "menedzer", "kierowni", "koordynator",
+            "head", "director", "dyrektor", "c_level", "c-level", "clevel",
+            "executive", "prezes", "cto", "ceo",
+        ),
+    ),
+    ("mid", ("mid", "regular", "medium", "intermediate", "specjalista", "specialist")),
+)
+
+
+def normalize_seniority_levels(value: Any) -> list[str] | None:
+    """Board seniority text (or list) -> ordered canonical levels, None if unknown.
+
+    "Mid, Senior" -> ["mid", "senior"]; "specjalista (Mid / Regular)" -> ["mid"];
+    "Trainee" / "praktykant / stażysta" -> ["intern"]; "c_level" -> ["manager"].
+    """
+    if value is None:
+        return None
+    items = value if isinstance(value, (list, tuple, set)) else [value]
+    found = set()
+    for item in items:
+        for part in re.split(r"[,;/|+&()→]|\band\b|\boraz\b|\blub\b|\bor\b", _text(item).lower()):
+            part = part.strip()
+            if not part:
+                continue
+            for level, markers in _SENIORITY_RULES:
+                if any(marker in part for marker in markers):
+                    found.add(level)
+                    break
+    levels = [level for level in SENIORITY_LEVELS if level in found]
+    return levels or None
+
+
+def tech_list_or_none(value: Any) -> list[str] | None:
+    """Typed technology list: None stays None (board does not distinguish)."""
+    if value is None:
+        return None
+    return text_list(value)
 
 
 def flat_listing(
@@ -110,6 +204,8 @@ def flat_listing(
     city: str = "",
     description: str = "",
     technologies: Any = None,
+    technologies_required: Any = None,
+    technologies_nice: Any = None,
     salary_month: Any = None,
     salary_hour: Any = None,
     currency: Any = None,
@@ -117,13 +213,30 @@ def flat_listing(
     employment_types: Iterable = (),
     seniority: Any = None,
     work_mode: Any = None,
+    work_mode_raw: Any = None,
+    seniority_levels: Any = None,
     application_url: Any = None,
     benefits: Iterable = (),
     date: Any = None,
     **extra: Any,
 ) -> dict:
-    """Build one flat, JSON-serialisable job listing."""
-    tech_list = text_list(technologies)
+    """Build one flat, JSON-serialisable job listing.
+
+    ``technologies_required`` / ``technologies_nice``: pass None when the board
+    does not distinguish required from nice-to-have, a list (possibly empty)
+    when it does. ``technologies`` becomes the de-duplicated union of the
+    untyped tags, the required and the nice-to-have technologies.
+    ``seniority`` keeps the board's text; ``seniority_levels`` defaults to the
+    normalised form of it. ``work_mode_raw`` is the board's original
+    work-mode/location text, kept for auditing.
+    """
+    required = tech_list_or_none(technologies_required)
+    nice = tech_list_or_none(technologies_nice)
+    tech_list = text_list(text_list(technologies) + (required or []) + (nice or []))
+    if seniority_levels is None:
+        levels = normalize_seniority_levels(seniority)
+    else:
+        levels = normalize_seniority_levels(seniority_levels)
     listing = {
         "board": _text(board),
         "url": _text(url),
@@ -134,13 +247,17 @@ def flat_listing(
         "description": str(description or ""),
         "technologies": ", ".join(tech_list),
         "technologies_list": tech_list,
+        "technologies_required": required,
+        "technologies_nice": nice,
         "salary-month": int_or_none(salary_month),
         "salary-hour": int_or_none(salary_hour),
         "currency": str_or_none(currency),
         "salary_type": normalize_salary_type(salary_type),
         "employment_types": as_list(employment_types),
         "seniority": str_or_none(seniority),
+        "seniority_levels": levels,
         "work_mode": normalize_work_mode(work_mode),
+        "work_mode_raw": str_or_none(work_mode_raw),
         "application_url": str_or_none(application_url),
         "benefits": as_list(benefits),
         "date": str_or_none(date),

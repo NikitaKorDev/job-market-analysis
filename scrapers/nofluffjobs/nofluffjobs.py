@@ -19,10 +19,11 @@ import time
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
+from scrapers import progress
 from scrapers.common import (
     flat_listing,
     normalize_salary_type,
-    normalize_work_mode,
+    normalize_seniority_levels,
 )
 
 BASE_URL = "https://nofluffjobs.com/pl/artificial-intelligence?criteria=category%3Dbackend,data,devops,fullstack"
@@ -125,10 +126,26 @@ def _salary(posting: dict, period: str = "month", detail: dict | None = None):
     return int(round(month)), int(round(hour)), currency, salary_type
 
 
+def _requirement_names(items) -> list[str]:
+    names = [_clean(item.get("value")) if isinstance(item, dict) else _clean(item) for item in items or []]
+    return list(dict.fromkeys(name for name in names if name))
+
+
+def _typed_technologies(detail: dict | None) -> tuple[list[str] | None, list[str] | None]:
+    """(required, nice) from the detail's requirements.musts / requirements.nices.
+
+    None, None when there is no detail (the search posting does not split them).
+    """
+    if not detail:
+        return None, None
+    requirements = detail.get("requirements") or {}
+    return _requirement_names(requirements.get("musts")), _requirement_names(requirements.get("nices"))
+
+
 def _technologies(posting: dict, detail: dict | None) -> str:
-    names = [posting.get("technology") or ""]
-    musts = ((detail or {}).get("requirements") or {}).get("musts") or []
-    names += [m.get("value", "") for m in musts if isinstance(m, dict)]
+    """Union: the posting's main technology, then musts, then nices."""
+    required, nice = _typed_technologies(detail)
+    names = [posting.get("technology") or ""] + (required or []) + (nice or [])
     return ", ".join(dict.fromkeys(_clean(n) for n in names if _clean(n)))
 
 
@@ -191,26 +208,66 @@ def _employment_types(detail: dict | None) -> list[str]:
 
 
 def _seniority(detail: dict | None) -> str | None:
+    """The board's levels as text, e.g. "Mid, Senior" (see _seniority_levels for the list)."""
     levels = ((detail or {}).get("basics") or {}).get("seniority") or []
     values = [_clean(level) for level in levels if _clean(level)]
     return ", ".join(dict.fromkeys(values)) or None
 
 
-def _work_mode(posting: dict, detail: dict | None, posting_jsonld: dict | None) -> str | None:
+def _seniority_levels(detail: dict | None) -> list[str] | None:
+    """basics.seniority (Trainee / Junior / Mid / Senior / Expert / Lead / Head) normalised:
+    Trainee -> intern, Head -> manager, the rest map by name."""
+    levels = ((detail or {}).get("basics") or {}).get("seniority") or []
+    return normalize_seniority_levels(levels if isinstance(levels, list) else [levels])
+
+
+def _work_mode(posting: dict, detail: dict | None, posting_jsonld: dict | None) -> tuple[str | None, str | None]:
+    """(work_mode, work_mode_raw).
+
+    No Fluff Jobs mapping:
+    - detail ``location.remote`` is the number of remote days per week:
+      5 -> remote (the page says "Fully remote"), 1-4 -> hybrid, 0 -> office.
+    - without it: ``location.fullyRemote`` -> remote; a "Remote" place -> remote (No Fluff
+      only adds that place to fully remote offers, its cities are the company offices);
+      TELECOMMUTE in the JSON-LD -> remote; anything else -> unknown (None), because an
+      offer with only city places may still be hybrid.
+    """
     location = (detail or {}).get("location") or posting.get("location") or {}
-    if location.get("fullyRemote"):
-        return "remote"
     cities = [
         _clean(place.get("city"))
         for place in location.get("places") or []
         if isinstance(place, dict)
     ]
-    if any(city.lower() == "remote" for city in cities):
-        return "remote"
+    cities = [city for city in dict.fromkeys(cities) if city]
+    remote_days = location.get("remote")
+    if isinstance(remote_days, bool) or not isinstance(remote_days, (int, float)):
+        remote_days = None
+
+    raw_parts = []
+    if remote_days is not None:
+        raw_parts.append(f"remote days/week: {remote_days:g}")
+    if location.get("fullyRemote"):
+        raw_parts.append("fullyRemote")
+    if location.get("remoteFlexible"):
+        raw_parts.append("remoteFlexible")
+    if _clean(location.get("hybridDesc")):
+        raw_parts.append(f"hybrid: {_clean(location.get('hybridDesc'))}")
+    if cities:
+        raw_parts.append("places: " + ", ".join(cities[:10]))
+    raw = "; ".join(raw_parts) or None
+
+    if remote_days is not None:
+        if remote_days >= 5:
+            return "remote", raw
+        if remote_days > 0:
+            return "hybrid", raw
+        return "office", raw
+    if location.get("fullyRemote") or any(city.lower() == "remote" for city in cities):
+        return "remote", raw
     if isinstance(posting_jsonld, dict):
         if str(posting_jsonld.get("jobLocationType") or "").upper() == "TELECOMMUTE":
-            return "remote"
-    return normalize_work_mode(", ".join(city for city in cities if city))
+            return "remote", raw or "TELECOMMUTE"
+    return None, raw
 
 
 def _benefits(detail: dict | None, posting_jsonld: dict | None = None) -> list[str]:
@@ -242,6 +299,8 @@ def _to_listing(
             salary_type = "brutto"
     date = _date(posting.get("posted")) or _date_from_jsonld(posting_jsonld)
     url = _posting_url(posting)
+    required, nice = _typed_technologies(detail)
+    work_mode, work_mode_raw = _work_mode(posting, detail, posting_jsonld)
     return flat_listing(
         board="nofluff",
         url=url,
@@ -251,13 +310,17 @@ def _to_listing(
         city=_city(posting),
         description=_description(detail, posting_jsonld),
         technologies=_technologies_list(posting, detail),
+        technologies_required=required,
+        technologies_nice=nice,
         salary_month=month,
         salary_hour=hour,
         currency=currency,
         salary_type=salary_type,
         employment_types=employment_types,
         seniority=_seniority(detail),
-        work_mode=_work_mode(posting, detail, posting_jsonld),
+        seniority_levels=_seniority_levels(detail),
+        work_mode=work_mode,
+        work_mode_raw=work_mode_raw,
         application_url=url,
         benefits=_benefits(detail, posting_jsonld),
         date=date,
@@ -348,6 +411,7 @@ class _Browser:
                     self.last_error = self.last_error or res["__error"]
                     res = None
                 out.append(res)
+            progress.advance(len(jobs[i:i + BATCH]))
         return out
 
     def close(self):
@@ -358,6 +422,7 @@ class _Browser:
 
 
 def _fetch_via_api(fetch_details, max_listings, headless):
+    progress.stage("API: opening browser")
     br = _Browser(headless)
     try:
         url, body, headers = br.discover_search_request()
@@ -368,6 +433,7 @@ def _fetch_via_api(fetch_details, max_listings, headless):
             u, b = _with_page(url, body, p)
             return {"method": "POST", "url": u, "headers": headers, "body": b}
 
+        progress.stage("API: search page 1")
         first = br.run([search_job(1)])[0]
         if not first or not first.get("postings"):
             raise _ApiError(f"page 1 replay failed ({br.last_error})")
@@ -380,6 +446,7 @@ def _fetch_via_api(fetch_details, max_listings, headless):
         print(f"[nofluff] totalCount={total}, {per_page}/page, fetching {pages} page(s)")
 
         if pages > 1:
+            progress.stage("API: search pages", total=pages - 1)
             rest = br.run([search_job(p) for p in range(2, pages + 1)])
             if any(r is None for r in rest):
                 raise _ApiError(f"a search page failed ({br.last_error})")
@@ -402,6 +469,7 @@ def _fetch_via_api(fetch_details, max_listings, headless):
                 {"method": "GET", "url": API_POSTING + p["url"] if p.get("url") else "", "headers": {}, "body": None}
                 for p in postings
             ]
+            progress.stage("API: details", total=len(jobs))
             details = br.run(jobs)
             missing = sum(d is None for d in details)
             if missing:
@@ -418,6 +486,7 @@ def _fetch_via_api(fetch_details, max_listings, headless):
         ]
         if needs_html:
             print(f"[nofluff] {len(needs_html)}/{len(postings)} missing descriptions; reading offer HTML")
+            progress.stage("API: HTML fallback", total=len(needs_html))
             for start in range(0, len(needs_html), 10):
                 chunk = needs_html[start:start + 10]
                 try:
@@ -425,6 +494,8 @@ def _fetch_via_api(fetch_details, max_listings, headless):
                 except Exception as e:
                     print(f"[nofluff] HTML detail batch failed: {e!r}")
                     continue
+                finally:
+                    progress.advance(len(chunk))
                 for (index, _), page_html in zip(chunk, pages_html):
                     posting_jsonld = _jsonld_jobposting(page_html)
                     if posting_jsonld:
@@ -557,6 +628,7 @@ def _parse_salary_text(raw: str):
 def _fetch_via_dom(max_listings, headless, max_clicks=None, fetch_details=True):
     from patchright.sync_api import sync_playwright
 
+    progress.stage("DOM: loading cards")
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             USER_DATA_DIR, channel="chrome", headless=headless, no_viewport=True
@@ -595,12 +667,15 @@ def _fetch_via_dom(max_listings, headless, max_clicks=None, fetch_details=True):
             jsonlds: list[dict | None] = [None] * len(unique)
             if fetch_details and unique:
                 urls = [u for u, _ in unique]
+                progress.stage("DOM: details", total=len(urls))
                 for i in range(0, len(urls), 10):
                     try:
                         pages_html = page.evaluate(FETCH_HTML_JS, urls[i:i + 10])
                     except Exception as e:
                         print(f"[nofluff] DOM detail batch failed: {e!r}")
                         continue
+                    finally:
+                        progress.advance(len(urls[i:i + 10]))
                     for j, h in enumerate(pages_html):
                         posting_jsonld = _jsonld_jobposting(h)
                         if posting_jsonld:
@@ -628,6 +703,8 @@ def _fetch_via_dom(max_listings, headless, max_clicks=None, fetch_details=True):
         benefits = [str(item) for item in raw_benefits if item] if isinstance(raw_benefits, list) else []
 
         city = _clean(c["city"])
+        # Cards only show a location; a "Remote"/"Zdalnie" card is fully remote on
+        # No Fluff (see _work_mode), anything else is unknown.
         work_mode = None
         if str(posting_jsonld.get("jobLocationType") or "").upper() == "TELECOMMUTE":
             work_mode = "remote"
@@ -650,6 +727,7 @@ def _fetch_via_dom(max_listings, headless, max_clicks=None, fetch_details=True):
                 salary_type=salary_type,
                 employment_types=employment_types,
                 work_mode=work_mode,
+                work_mode_raw=city or None,
                 application_url=url,
                 benefits=benefits,
                 date=_clean(c["badge"]) or _date_from_jsonld(posting_jsonld),

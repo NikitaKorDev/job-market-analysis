@@ -12,7 +12,13 @@ from bs4 import BeautifulSoup
 from curl_cffi.requests import AsyncSession
 from patchright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
-from scrapers.common import flat_listing, normalize_salary_type, normalize_work_mode
+from scrapers import progress
+from scrapers.common import (
+    flat_listing,
+    normalize_salary_type,
+    normalize_seniority_levels,
+    normalize_work_mode,
+)
 
 CSV_FILENAME = "pracuj_it_jobs.csv"
 PROFILE_DIR = "./chrome_profile"   # persistent Chrome profile (keeps cookies/consent)
@@ -182,6 +188,9 @@ def _detail_from_html(html: str) -> dict:
         chunks.append(clean_text(attributes["description"]))
 
     technologies = []
+    # pracuj splits "technologies-expected" (required) from "technologies-optional"
+    # (nice to have). Both are lists when the offer data is present, else None.
+    typed = {"technologies-expected": [], "technologies-optional": []} if data else None
     for section in sections:
         if not isinstance(section, dict):
             continue
@@ -194,6 +203,8 @@ def _detail_from_html(html: str) -> dict:
                 item = clean_text(str(item))
                 if item and item not in technologies:
                     technologies.append(item)
+                if item and typed is not None and item not in typed[section_type]:
+                    typed[section_type].append(item)
 
     description = "\n\n".join(dict.fromkeys(chunk for chunk in chunks if chunk))
 
@@ -226,24 +237,41 @@ def _detail_from_html(html: str) -> dict:
         name for name in dict.fromkeys(contract_names + schedule_names) if name
     ]
 
-    levels = employment.get("positionLevels") or []
-    seniority = levels[0].get("name") if levels and isinstance(levels[0], dict) else None
+    # positionLevels, e.g. "specjalista (Mid / Regular), starszy specjalista (Senior)":
+    # the text is kept, seniority_levels maps praktykant / stażysta -> intern,
+    # asystent / młodszy specjalista -> junior, specjalista -> mid, starszy -> senior,
+    # ekspert -> expert, kierownik / koordynator / menedżer / dyrektor -> manager.
+    level_names = [
+        clean_text(str(level.get("name") or ""))
+        for level in employment.get("positionLevels") or []
+        if isinstance(level, dict)
+    ]
+    level_names = [name for name in dict.fromkeys(level_names) if name]
+    seniority = ", ".join(level_names) or None
 
+    # workModes lists every mode the employer allows ("praca stacjonarna",
+    # "praca hybrydowa", "praca zdalna", "praca mobilna"). entirelyRemoteWork marks a
+    # fully remote offer -> remote; otherwise several modes together -> hybrid.
+    mode_names = [
+        clean_text(str(mode.get("name") or ""))
+        for mode in employment.get("workModes") or []
+        if isinstance(mode, dict)
+    ]
+    mode_names = [name for name in dict.fromkeys(mode_names) if name]
+    work_mode_raw = ", ".join(mode_names) or None
     if employment.get("entirelyRemoteWork"):
         work_mode = "remote"
+        work_mode_raw = "entirelyRemoteWork" + (f"; {work_mode_raw}" if work_mode_raw else "")
     else:
-        mode_names = [
-            mode.get("name")
-            for mode in employment.get("workModes") or []
-            if isinstance(mode, dict)
-        ]
-        work_mode = normalize_work_mode(", ".join(name for name in mode_names if name))
+        work_mode = normalize_work_mode(mode_names)
 
     applying = attributes.get("applying") or {}
 
     return {
         "description": description,
         "technologies": technologies,
+        "technologies_required": typed["technologies-expected"] if typed is not None else None,
+        "technologies_nice": typed["technologies-optional"] if typed is not None else None,
         "company": company,
         "url": str(attributes.get("offerAbsoluteUrl") or ""),
         "date": date_posted,
@@ -253,7 +281,9 @@ def _detail_from_html(html: str) -> dict:
         "salary_type": salary_type,
         "employment_types": employment_types,
         "seniority": seniority,
+        "seniority_levels": normalize_seniority_levels(level_names),
         "work_mode": work_mode,
+        "work_mode_raw": work_mode_raw,
         "application_url": applying.get("applyUrl") or "",
         "benefits": _benefits_from_sections(sections),
     }
@@ -295,8 +325,12 @@ def _load_detail_cache() -> dict[str, dict]:
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue  # half-written last line after a crash
-            if rec.get("url") and rec.get("detail") and rec.get("ts", 0) >= cutoff:
-                cache[rec["url"]] = rec["detail"]
+            detail = rec.get("detail")
+            # Details cached before technologies_required existed lack the typed
+            # technologies / all levels / raw work mode: treat them as stale.
+            if (rec.get("url") and isinstance(detail, dict) and rec.get("ts", 0) >= cutoff
+                    and "technologies_required" in detail):
+                cache[rec["url"]] = detail
     return cache
 
 
@@ -323,6 +357,9 @@ def _apply_detail(listing: dict, detail: dict) -> None:
         listing["salary_type"] = detail["salary_type"]
     if detail["employment_types"]:
         listing["employment_types"] = detail["employment_types"]
+    for key in ("technologies_required", "technologies_nice", "seniority_levels", "work_mode_raw"):
+        if detail.get(key) is not None:
+            listing[key] = detail[key]
     if detail["seniority"]:
         listing["seniority"] = detail["seniority"]
     if detail["work_mode"]:
@@ -380,6 +417,7 @@ async def enrich_details(listings: list[dict]) -> None:
     if not pending:
         return
 
+    progress.stage(f"details ({len(by_url) - len(pending):,} cached)", total=len(pending))
     semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
     total = len(pending)
     done = failed = 0
@@ -398,6 +436,7 @@ async def enrich_details(listings: list[dict]) -> None:
                     detail = await _fetch_detail(session, url)
 
                 done += 1
+                progress.advance()
                 if detail:
                     # The cache is keyed by the ORIGINAL url (before _apply_detail may rewrite it).
                     cache_fh.write(
@@ -738,7 +777,9 @@ async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) 
 
         try:
             print("--- Processing Page 1 & discovering total pages ---")
+            progress.stage("result pages")
             page1_jobs, soup1 = await scrape_page(context, target_url, 1, sink)
+            progress.advance()
             if not page1_jobs:
                 print("Failed to load page 1. Check ./debug/page_1.png and the log above.")
                 return []
@@ -750,6 +791,7 @@ async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) 
             if detected_total is not None:
                 total_to_fetch = min(limit, detected_total) if limit else detected_total
                 print(f"Detected {detected_total} total pages; fetching {total_to_fetch}.")
+                progress.set_total(total_to_fetch)
 
                 if total_to_fetch > 1:
                     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
@@ -757,6 +799,7 @@ async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) 
                     async def worker(n: int):
                         async with semaphore:
                             jobs, _ = await scrape_page(context, target_url, n, sink)
+                            progress.advance()
                             return n, jobs
 
                     results = await asyncio.gather(*(worker(n) for n in range(2, total_to_fetch + 1)))
@@ -772,6 +815,7 @@ async def fetch_pracuj_listings(target_url: str = BASE_URL, max_pages: int = 0) 
                 empty_in_a_row = 0
                 for n in range(2, cap + 1):
                     jobs, _ = await scrape_page(context, target_url, n, sink)
+                    progress.advance()
                     if jobs:
                         all_listings.extend(jobs)
                         empty_in_a_row = 0

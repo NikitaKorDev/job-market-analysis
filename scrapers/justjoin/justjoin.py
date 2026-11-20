@@ -18,6 +18,14 @@ instead of a "jobposting" block.
 
 NOTE: robots.txt on justjoin.it disallows /api/. The HTML path stays on allowed paths.
 
+Cached HTML-era offers (v4/v5 entries, and any offer whose API detail failed) only hold the
+schema.org JobPosting, which has no skills, no experience level and no hybrid/office flag.
+Every run therefore attaches the offer's API *listing* record (already downloaded during
+discovery, it carries requiredSkills / niceToHaveSkills / experienceLevel / workplaceType) to
+such entries as raw["api_listing"]; no extra request is made. The HTML path also keeps the
+offer record embedded in the page's React Server Components payload as raw["page_offer"].
+Set JJ_MAX_FETCH=N to cap the offer detail requests of one run (e.g. a smoke test).
+
 The API field names were taken from third-party documentation and have NOT been verified
 against the live site by the author. Run once with JJ_DEBUG=1: it dumps the first listing
 response and the first detail response to debug_api_*.json so you can eyeball the mapping.
@@ -36,7 +44,8 @@ from urllib.parse import quote, unquote, urlencode, urljoin, urlparse, urlunpars
 from bs4 import BeautifulSoup
 from patchright.async_api import async_playwright
 
-from scrapers.common import flat_listing, normalize_work_mode
+from scrapers import progress
+from scrapers.common import flat_listing
 
 try:
     import lxml  # noqa: F401
@@ -60,6 +69,7 @@ API_MAX_FROM = 10_000           # the site serves at most this many results per 
 API_PAGE_PARALLEL = 8           # listing pages in flight at once (starts are still throttled)
 API_COVERAGE = 0.98             # a query counts as complete if we got >= this share of its total
 API_FAIL_LIMIT = 8              # consecutive API detail failures before the API is switched off
+MAX_FETCH_PER_RUN = int(os.environ.get("JJ_MAX_FETCH") or 0) or None  # None = no cap
 API_SWEEP_UNFILTERED = True     # also walk the unfiltered query (newest 10k) to discover new categories
 API_CATEGORIES = (              # partitions that get around the 10k cap; unknown ones are auto-discovered
     "data", "java", "analytics", "pm", "devops", "erp", "architecture", "testing", "ai",
@@ -225,6 +235,56 @@ def extract_jobposting(page_html):
     return None
 
 
+NEXT_F_RE = re.compile(r"self\.__next_f\.push\((\[.*?\])\)</script>", re.S)
+PAGE_OFFER_KEYS = (  # structured fields kept from the page's embedded offer record
+    "slug", "title", "companyName", "experienceLevel", "workplaceType", "workingTime",
+    "requiredSkills", "niceToHaveSkills", "employmentTypes", "multilocation", "city",
+    "applyUrl", "publishedAt", "languages", "category",
+)
+
+
+def _flight_text(page_html):
+    """Concatenated React Server Components payload (self.__next_f.push chunks)."""
+    out = []
+    for chunk in NEXT_F_RE.findall(page_html or ""):
+        try:
+            arr = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        if len(arr) > 1 and isinstance(arr[1], str):
+            out.append(arr[1])
+    return "".join(out)
+
+
+def extract_page_offer(page_html, slug=None):
+    """The offer record the page renders from (requiredSkills, niceToHaveSkills,
+    experienceLevel, workplaceType, ...), read from the RSC payload. justjoin.it no longer
+    ships __NEXT_DATA__. The page also embeds 'similar offers' in the same shape, so the
+    record whose slug matches the page wins; otherwise the first one. None if absent."""
+    text = _flight_text(page_html)
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    first = None
+    for m in re.finditer(r'"requiredSkills"\s*:\s*\[', text):
+        pos, i = m.start(), m.start()
+        while True:  # walk back to the '{' of the object that owns this key
+            i = text.rfind("{", max(0, pos - 30000), i)
+            if i < 0:
+                break
+            try:
+                obj, end = decoder.raw_decode(text, i)
+            except ValueError:
+                continue
+            if end > pos and isinstance(obj, dict) and "requiredSkills" in obj:
+                rec = {k: obj[k] for k in PAGE_OFFER_KEYS if k in obj}
+                if slug and rec.get("slug") == slug:
+                    return rec
+                first = first or rec
+                break
+    return first
+
+
 def extract_skills(jp, page_html):
     skills = jp.get("skills") if jp else None
     if isinstance(skills, str):
@@ -248,6 +308,9 @@ def extract_skills(jp, page_html):
                     names = [n for n in names if n]
                     if names:
                         return names
+    offer = extract_page_offer(page_html)
+    if offer:
+        return _names((offer.get("requiredSkills") or []) + (offer.get("niceToHaveSkills") or []))
     return []
 
 
@@ -338,13 +401,17 @@ def extract_published(page_html):
 def build_records(offer_url, jp, page_html):
     published_iso, published_raw = extract_published(page_html)
     date = published_iso or str(jp.get("datePosted") or "")[:10]
-    return {
+    record = {
         "offer_url": offer_url,
         "published_raw": published_raw,
         "date": date,
         "skills": extract_skills(jp, page_html),
         "jobposting": jp,
     }
+    page_offer = extract_page_offer(page_html, slug_from_url(offer_url))
+    if page_offer:
+        record["page_offer"] = page_offer
+    return record
 
 
 def parse_offer(url, body):
@@ -573,13 +640,67 @@ def _html_employment_types(jp):
     return _dedupe(out)
 
 
-def raw_to_flat(raw):
-    """Turn one cached raw record (API or HTML) into a flat listing dictionary."""
+def _label(value):
+    """experienceLevel / workplaceType are plain strings in the API and
+    {"label", "value"} objects in the page payload."""
+    if isinstance(value, dict):
+        value = value.get("value") or value.get("label")
+    return str(value or "").strip()
+
+
+def _record_fields(rec):
+    """Skills / seniority / work mode from an API detail, API listing or page offer record.
+
+    justjoin distinguishes required from nice-to-have skills, so both lists are always
+    lists (possibly empty) when the record carries either key, None otherwise.
+    workplaceType is one of remote (fully remote) / hybrid / office and maps 1:1.
+    experienceLevel is intern / junior / mid / senior / manager / c_level
+    (c_level -> manager in seniority_levels).
+    """
+    has_skills = "requiredSkills" in rec or "niceToHaveSkills" in rec
+    workplace = _label(rec.get("workplaceType"))
+    return {
+        "technologies_required": _names(rec.get("requiredSkills")) if has_skills else None,
+        "technologies_nice": _names(rec.get("niceToHaveSkills")) if has_skills else None,
+        "seniority": _label(rec.get("experienceLevel")) or None,
+        "work_mode": workplace or None,
+        "work_mode_raw": workplace or None,
+    }
+
+
+def raw_source(raw):
+    """Which raw path raw_to_flat() uses: api | page_offer | api_listing | jsonld | None."""
     if not isinstance(raw, dict):
+        return None
+    if isinstance(raw.get("api"), dict):
+        return "api"
+    if not isinstance(raw.get("jobposting"), dict):
+        return None
+    if isinstance(raw.get("page_offer"), dict):
+        return "page_offer"
+    if isinstance(raw.get("api_listing"), dict):
+        return "api_listing"
+    return "jsonld"
+
+
+def raw_to_flat(raw):
+    """Turn one cached raw record into a flat listing dictionary.
+
+    Paths, best first:
+      api          -- the detail API record (description in `body`).
+      page_offer / api_listing
+                   -- HTML-era record: description, company, salary and date from the
+                      schema.org JobPosting; skills, seniority and work mode from the offer
+                      record embedded in the page or from the API listing record.
+      jsonld       -- JobPosting only: no seniority, skills only if the JobPosting lists
+                      them (untyped), work mode only remote (TELECOMMUTE) or unknown.
+    """
+    source = raw_source(raw)
+    if source is None:
         return None
     offer_url = str(raw.get("offer_url") or "")
 
-    if isinstance(raw.get("api"), dict):
+    if source == "api":
         rec = raw["api"]
         month, hour, currency = salary_from_api(rec)
         return flat_listing(
@@ -590,46 +711,59 @@ def raw_to_flat(raw):
             title=str(rec.get("title") or ""),
             city=api_city(rec),
             description=clean_description(str(rec.get("body") or ""), unescape=False),
-            technologies=_dedupe(_names(rec.get("requiredSkills")) + _names(rec.get("niceToHaveSkills"))),
             salary_month=month,
             salary_hour=hour,
             currency=currency,
             salary_type=_api_salary_type(rec),
             employment_types=_api_employment_types(rec),
-            seniority=str(rec.get("experienceLevel") or "").strip() or None,
-            work_mode=normalize_work_mode(rec.get("workplaceType")),
             application_url=rec.get("applyUrl") or offer_url,
             benefits=_names(rec.get("benefits")),
             date=raw.get("date") or api_date(rec),
+            **_record_fields(rec),
         )
 
-    jp = raw.get("jobposting")
-    if not isinstance(jp, dict):
-        return None
+    jp = raw["jobposting"]
     month, hour, currency = salary_from_jsonld(jp)
     organization = jp.get("hiringOrganization") or {}
     company = organization.get("name") if isinstance(organization, dict) else ""
-    work_mode = "remote" if str(jp.get("jobLocationType") or "").upper() == "TELECOMMUTE" else None
     benefits = jp.get("benefits")
     if not benefits:
         benefits = jp.get("jobBenefits")
-    return flat_listing(
+    common = dict(
         board="justjoin",
         url=offer_url,
         company=str(company or ""),
         offer_id=slug_from_url(offer_url) or "",
         title=str(jp.get("title") or ""),
-        city=extract_city(jp),
         description=clean_description(jp.get("description", "")),
-        technologies=raw.get("skills") or extract_skills(jp, ""),
         salary_month=month,
         salary_hour=hour,
         currency=currency,
-        employment_types=_html_employment_types(jp),
-        work_mode=work_mode,
-        application_url=offer_url,
         benefits=_names(benefits),
         date=raw.get("date") or str(jp.get("datePosted") or "")[:10],
+    )
+
+    if source in ("page_offer", "api_listing"):
+        # listing record first, the page's own record on top of it
+        rec = {**(raw.get("api_listing") or {}), **(raw.get("page_offer") or {})}
+        return flat_listing(
+            city=api_city(rec) or extract_city(jp),
+            technologies=raw.get("skills") or [],
+            employment_types=_api_employment_types(rec) or _html_employment_types(jp),
+            application_url=rec.get("applyUrl") or offer_url,
+            **common,
+            **_record_fields(rec),
+        )
+
+    location_type = str(jp.get("jobLocationType") or "").strip()
+    return flat_listing(
+        city=extract_city(jp),
+        technologies=raw.get("skills") or extract_skills(jp, ""),
+        employment_types=_html_employment_types(jp),
+        work_mode="remote" if location_type.upper() == "TELECOMMUTE" else None,
+        work_mode_raw=location_type or None,
+        application_url=offer_url,
+        **common,
     )
 
 
@@ -678,6 +812,22 @@ class Journal:
 
     def close(self):
         self.f.close()
+
+
+def attach_listing_record(entry, listing_rec):
+    """Keep the API listing record with a cached entry that has no API detail record.
+
+    Root cause of the missing skills / seniority / work mode: HTML-era cache entries
+    (schema.org JobPosting only) were reused as they are for weeks, and the listing record
+    downloaded during discovery, which has requiredSkills, niceToHaveSkills,
+    experienceLevel and workplaceType, was thrown away. Returns True if attached."""
+    raw = entry.get("raw") if isinstance(entry, dict) else None
+    if not isinstance(raw, dict) or isinstance(raw.get("api"), dict):
+        return False
+    if not isinstance(listing_rec, dict) or not listing_rec:
+        return False
+    raw["api_listing"] = listing_rec
+    return True
 
 
 def is_stale(entry):
@@ -1047,6 +1197,8 @@ async def get_offer_records(context, url, throttle, ctl, api_records, api_state)
     if parsed is None:
         print(f"No JobPosting data for {url}")
         return None
+    if isinstance(api_records.get(url), dict):
+        parsed["api_listing"] = api_records[url]
     return parsed, "html"
 
 
@@ -1082,6 +1234,8 @@ async def offer_worker(queue, context, throttle, ctl, state, journal, counter, a
                       f"interval {throttle.interval:.2f}s)")
         except Exception as e:
             print(f"Offer failed {url}: {e}")
+        finally:
+            progress.advance()
 
 
 async def _block_heavy(route):
@@ -1101,7 +1255,7 @@ async def fetch_justjoin_listings():
     api_state = {"enabled": USE_API, "fails": 0}
     api_records = {}
     queue = asyncio.Queue()
-    stats = {"new": 0, "backfill": 0, "stale": 0, "cached": 0}
+    stats = {"new": 0, "backfill": 0, "stale": 0, "cached": 0, "deferred": 0, "enriched": 0}
     scheduled = set()
     listed, complete = [], False
     context, workers = None, []
@@ -1127,6 +1281,7 @@ async def fetch_justjoin_listings():
             ]
 
             run_started = now_iso()
+            progress.stage("listing + offers", total=0)
 
             def schedule(urls):
                 """Decide per URL what needs a request and queue it right away (idempotent)."""
@@ -1145,9 +1300,20 @@ async def fetch_justjoin_listings():
                         kind = "cached"
                     if entry is not None:
                         entry["last_seen"] = run_started
+                        if attach_listing_record(entry, api_records.get(u)):
+                            stats["enriched"] += 1
+                    if kind != "cached" and MAX_FETCH_PER_RUN is not None and \
+                            stats["new"] + stats["backfill"] + stats["stale"] >= MAX_FETCH_PER_RUN:
+                        # JJ_MAX_FETCH reached: new offers wait for a later run, known ones
+                        # are served from the cache as they are.
+                        if entry is None:
+                            stats["deferred"] += 1
+                            continue
+                        kind = "cached"
                     stats[kind] += 1
                     if kind != "cached":
                         queue.put_nowait(u)
+                        progress.add_total(1)
 
             if USE_API:
                 listed, complete = await api_collect_all(context, throttle, ctl, schedule, api_records)
@@ -1162,8 +1328,11 @@ async def fetch_justjoin_listings():
             print(f"{len(listed)} offers currently listed"
                   + ("" if complete else "  (INCOMPLETE: re-run to pick up the rest)"))
             print(f"{stats['new']} new, {stats['backfill']} to backfill, "
-                  f"{stats['stale']} stale refreshes, {stats['cached']} served from cache")
+                  f"{stats['stale']} stale refreshes, {stats['cached']} served from cache, "
+                  f"{stats['enriched']} cached HTML entries enriched from the API listing, "
+                  f"{stats['deferred']} deferred (JJ_MAX_FETCH)")
 
+            progress.label(f"offers ({stats['cached']:,} cached)")
             for _ in workers:
                 queue.put_nowait(None)
             await asyncio.gather(*workers, return_exceptions=True)

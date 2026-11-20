@@ -21,8 +21,10 @@ One dictionary per offer, with these core keys:
 ```text
 board, url, company, offer_id
 title, city, description, technologies, technologies_list
+technologies_required, technologies_nice
 salary-month, salary-hour, currency, salary_type
-employment_types, seniority, work_mode, application_url, benefits
+employment_types, seniority, seniority_levels, work_mode, work_mode_raw,
+application_url, benefits
 date, scraped_at
 ```
 
@@ -31,7 +33,13 @@ Normalisation rules:
 - `technologies` is a comma-joined string; `technologies_list` is the list form.
 - Undisclosed salary values are `None`, never `0` or `""`.
 - `salary_type` is `brutto` / `netto` (or `None` when ambiguous).
-- `work_mode` is `remote` / `hybrid` / `office`.
+- `work_mode` is `remote` (fully remote only) / `hybrid` / `office` / `None`.
+- `technologies_required` / `technologies_nice` are lists when the board
+  separates required from nice-to-have skills, `None` when it does not.
+  `technologies` stays the union (untyped tags + required + nice).
+- `seniority` keeps the board's text; `seniority_levels` is the normalised,
+  ordered subset of `intern, junior, mid, senior, lead, expert, manager`.
+- `work_mode_raw` is the board's original work-mode/location text (audit only).
 - `scraped_at` is an ISO-8601 UTC timestamp.
 - `board` / `scraped_at` are defaulted by the hub if a scraper omits them.
 
@@ -147,3 +155,66 @@ No backfill from `job_data_raw.json`. Fresh scrapes only.
 - Non-empty percentages for description/url/company/technologies.
 - Re-running with unchanged data adds no SCD versions.
 - Smoke query: `SELECT url, title, company, description, technologies FROM dim_job_listings WHERE is_current`.
+
+---
+
+## Phase 0 — scraper verification and fixes (2026-11-18)
+
+### Column contract additions (`dim_job_listings`)
+
+| Column | Type | Meaning |
+|---|---|---|
+| `technologies_required` | `VARCHAR[]` | required technologies as the board lists them; NULL when the board does not distinguish required/nice, `[]` when it does and lists none |
+| `technologies_nice` | `VARCHAR[]` | nice-to-have technologies, same NULL rule |
+| `seniority_levels` | `VARCHAR[]` | ordered subset of intern, junior, mid, senior, lead, expert, manager; NULL when unknown |
+| `work_mode_raw` | `VARCHAR` | the board's original work-mode/location text |
+
+`technologies_required`, `technologies_nice` and `seniority_levels` are part of
+`hash_diff`; `work_mode_raw` is not. `ensure_schema` adds the columns to an
+existing table with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (old rows hold
+NULL; the first ingest after the migration versions every listing once,
+because the hashed fields changed).
+
+### work_mode per board
+
+| Board | Source | Mapping |
+|---|---|---|
+| justjoin | `workplaceType` (API detail, API listing record, page RSC record) | remote / hybrid / office 1:1; JSON-LD-only entries: `TELECOMMUTE` -> remote, else NULL |
+| nofluff | detail `location.remote` = remote days per week | 5 -> remote, 1-4 -> hybrid, 0 -> office; no detail: `fullyRemote` or a "Remote" place -> remote, else NULL |
+| bulldogjobs | `__NEXT_DATA__` `job.workModes` (`on-site`, `hybrid`, `full-remote`) | only full-remote -> remote; any hybrid, or full-remote + on-site -> hybrid; only on-site -> office; no workModes: `remote` true -> remote, `remotePossible` > 0 -> hybrid, 0 -> office, JSON-LD TELECOMMUTE -> remote |
+| pracuj | `employment.entirelyRemoteWork`, `workModes[].name` | entirelyRemoteWork -> remote; else `normalize_work_mode` over all modes (several modes -> hybrid) |
+| olx | `workplace` param labels | `normalize_work_mode` (W siedzibie firmy -> office, Praca hybrydowa -> hybrid, Praca zdalna alone -> remote, several -> hybrid); `remote_recruitment` is the interview and is ignored |
+
+`normalize_work_mode`: hybrid marker -> hybrid; "możliwa praca zdalna" /
+"remote possible" style phrases -> hybrid; remote + office -> hybrid; remote
+alone -> remote; office alone -> office.
+
+### seniority per board
+
+| Board | `seniority` (board text) | `seniority_levels` |
+|---|---|---|
+| justjoin | `experienceLevel`: intern, junior, mid, senior, manager, c_level | 1:1, c_level -> manager |
+| nofluff | `basics.seniority` joined, e.g. "Mid, Senior" | Trainee -> intern, Junior, Mid, Senior, Expert, Lead by name, Head -> manager |
+| bulldogjobs | `job.experienceLevel`: junior, medium, senior, lead (fallback: months of experience estimate) | medium -> mid, others by name |
+| pracuj | all `positionLevels` names joined | praktykant/stażysta -> intern, asystent/młodszy -> junior, specjalista -> mid, starszy -> senior, ekspert -> expert, kierownik/koordynator/menedżer/dyrektor -> manager |
+| olx | none | NULL |
+
+### Required vs nice-to-have per board
+
+- justjoin: `requiredSkills` / `niceToHaveSkills`.
+- nofluff: `requirements.musts` / `requirements.nices` (detail API).
+- pracuj: `technologies-expected` / `technologies-optional` text sections.
+- bulldogjobs, olx: no distinction -> NULL.
+
+### justjoin gap
+
+HTML-era cache entries (fetched by v4/v5 before the API path existed) hold only
+the schema.org JobPosting: no skills, no experience level, no hybrid/office.
+They were served from `justjoin_state.json` as they are (STATE_VERSION
+unchanged, only 25 stale refreshes per run) while the API listing record that
+discovery downloads every run, which has all of that, was discarded. Every run
+now attaches that record to such entries (`raw["api_listing"]`), and the HTML
+fallback also keeps the offer record embedded in the page's RSC payload
+(`raw["page_offer"]`; justjoin.it no longer ships `__NEXT_DATA__`).
+
+Coverage per board: `python -m scripts.coverage`.

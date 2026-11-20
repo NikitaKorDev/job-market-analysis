@@ -12,7 +12,8 @@ from patchright.async_api import BrowserContext, Locator
 from patchright.async_api import TimeoutError as PWTimeout
 from patchright.async_api import async_playwright
 
-from scrapers.common import flat_listing, normalize_salary_type
+from scrapers import progress
+from scrapers.common import flat_listing, normalize_salary_type, normalize_seniority_levels
 
 BASE_URL = "https://bulldogjob.pl/companies/jobs/s/page,1"
 PAGE_URL = "https://bulldogjob.pl/companies/jobs/s/page,{page}"
@@ -319,65 +320,142 @@ async def listing_handler(page, status: int) -> list[dict]:
     return await scrape_cards(page)
 
 
-async def detail_handler(page, status: int) -> dict:
-    """Return detail fields from a job page (empty values if missing)."""
-    empty = {
-        "description": "",
-        "date": "",
-        "company": "",
-        "employment_types": [],
-        "seniority": None,
-        "work_mode": None,
-        "benefits": [],
-        "skills": [],
-        "salary_month": None,
-        "salary_hour": None,
-        "currency": None,
-        "salary_type": None,
-    }
+_LD_RE = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.S | re.I
+)
+_NEXT_RE = re.compile(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', re.S | re.I)
+_META_DESC_RE = re.compile(
+    r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)["\']', re.I
+)
 
-    blocks = await page.eval_on_selector_all(
-        'script[type="application/ld+json"]',
-        "els => els.map(e => e.textContent)",
-    )
-    for block in blocks:
+# job.experienceLevel (junior / medium / senior / lead ...) is kept as the board
+# text in `seniority`; seniority_levels maps medium -> mid, the rest by name
+# (see normalize_seniority_levels).
+
+
+def _next_job(page_html: str) -> dict:
+    """props.pageProps.data.job from the page's __NEXT_DATA__ ({} if absent)."""
+    match = _NEXT_RE.search(page_html or "")
+    if not match:
+        return {}
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {}
+    job = (((data.get("props") or {}).get("pageProps") or {}).get("data") or {}).get("job")
+    return job if isinstance(job, dict) else {}
+
+
+def work_mode_from_job(job: dict, posting: dict | None = None) -> tuple[str | None, str | None]:
+    """(work_mode, work_mode_raw) for a Bulldogjob offer.
+
+    job.workModes lists the modes a candidate may choose ("on-site", "hybrid",
+    "full-remote"):
+      only full-remote -> remote; any hybrid, or full-remote together with on-site
+      -> hybrid; only on-site -> office.
+    Without workModes: job.remote True -> remote; else environment.remotePossible (share
+    of remote work, %) > 0 -> hybrid (even 100: with remote False those offers read
+    "a mix of remote, client site and office"), 0 -> office; else JSON-LD TELECOMMUTE ->
+    remote; otherwise unknown.
+    """
+    modes = [str(m).strip().lower() for m in job.get("workModes") or [] if str(m).strip()]
+    environment = job.get("environment") if isinstance(job.get("environment"), dict) else {}
+    possible = environment.get("remotePossible")
+    if isinstance(possible, bool) or not isinstance(possible, (int, float)):
+        possible = None
+    location_type = str((posting or {}).get("jobLocationType") or "").strip()
+
+    raw_parts = []
+    if modes:
+        raw_parts.append("workModes: " + ", ".join(modes))
+    if "remote" in job:
+        raw_parts.append(f"remote: {str(bool(job.get('remote'))).lower()}")
+    if possible is not None:
+        raw_parts.append(f"remotePossible: {possible:g}%")
+    if location_type:
+        raw_parts.append(f"jobLocationType: {location_type}")
+    raw = "; ".join(raw_parts) or None
+
+    remote = any("remote" in m for m in modes)
+    hybrid = any("hybrid" in m for m in modes)
+    office = any(m in ("on-site", "onsite", "office") for m in modes)
+    if modes:
+        if hybrid or (remote and office):
+            return "hybrid", raw
+        if remote:
+            return "remote", raw
+        if office:
+            return "office", raw
+    if job.get("remote") is True:
+        return "remote", raw
+    if possible is not None:
+        # job.remote is not True, so this is not a fully remote job: remote work is
+        # only possible part of the time (e.g. "mix of remote, client site and office").
+        return ("hybrid" if possible > 0 else "office"), raw
+    if location_type.upper() == "TELECOMMUTE":
+        return "remote", raw
+    return None, raw
+
+
+def parse_detail_html(page_html: str) -> dict:
+    """Detail fields from a job page's HTML: schema.org JobPosting + __NEXT_DATA__ job."""
+    posting = None
+    for block in _LD_RE.findall(page_html or ""):
         try:
             posting = _find_job_posting(json.loads(block))
         except json.JSONDecodeError:
             continue
         if posting:
-            description = _strip_html(posting.get("description", "") or "")
-            organization = posting.get("hiringOrganization") or {}
-            company = str(organization.get("name") or "").strip() if isinstance(organization, dict) else ""
-            month, hour, currency, salary_type = _salary_from_jsonld(posting)
-            experience = posting.get("experienceRequirements") or {}
-            months = experience.get("monthsOfExperience") if isinstance(experience, dict) else None
-            work_mode = None
-            if str(posting.get("jobLocationType") or "").upper() == "TELECOMMUTE":
-                work_mode = "remote"
-            return {
-                "description": description,
-                "date": str(posting.get("datePosted", "") or "")[:10],
-                "company": company,
-                "employment_types": [
-                    EMPLOYMENT_NAMES.get(item.lower(), item)
-                    for item in _string_list(posting.get("employmentType"))
-                ],
-                "seniority": _seniority(months),
-                "work_mode": work_mode,
-                "benefits": _string_list(posting.get("benefits") or posting.get("jobBenefits")),
-                "skills": _string_list(posting.get("skills")),
-                "salary_month": month,
-                "salary_hour": hour,
-                "currency": currency,
-                "salary_type": salary_type,
-            }
+            break
+    posting = posting or {}
+    job = _next_job(page_html)
 
-    meta = await page.evaluate(
-        "() => document.querySelector('meta[name=description]')?.content || ''"
-    )
-    empty["description"] = meta.strip()
-    return empty
+    description = _strip_html(posting.get("description", "") or "")
+    if not description:
+        match = _META_DESC_RE.search(page_html or "")
+        description = html.unescape(match.group(1)).strip() if match else ""
+    organization = posting.get("hiringOrganization") or {}
+    company = str(organization.get("name") or "").strip() if isinstance(organization, dict) else ""
+    if not company and isinstance(job.get("company"), dict):
+        company = str(job["company"].get("name") or "").strip()
+    month, hour, currency, salary_type = _salary_from_jsonld(posting)
+    experience = posting.get("experienceRequirements") or {}
+    months = experience.get("monthsOfExperience") if isinstance(experience, dict) else None
+
+    level = str(job.get("experienceLevel") or "").strip()
+    # board text if present; otherwise the old months-of-experience estimate
+    seniority = level or _seniority(months)
+    work_mode, work_mode_raw = work_mode_from_job(job, posting)
+
+    skills = _string_list(posting.get("skills"))
+    for tag in job.get("technologyTags") or []:
+        if str(tag).strip() and str(tag).strip() not in skills:
+            skills.append(str(tag).strip())
+
+    return {
+        "description": description,
+        "date": str(posting.get("datePosted", "") or "")[:10],
+        "company": company,
+        "employment_types": [
+            EMPLOYMENT_NAMES.get(item.lower(), item)
+            for item in _string_list(posting.get("employmentType"))
+        ],
+        "seniority": seniority,
+        "seniority_levels": normalize_seniority_levels(seniority),
+        "work_mode": work_mode,
+        "work_mode_raw": work_mode_raw,
+        "benefits": _string_list(posting.get("benefits") or posting.get("jobBenefits")),
+        "skills": skills,
+        "salary_month": month,
+        "salary_hour": hour,
+        "currency": currency,
+        "salary_type": salary_type,
+    }
+
+
+async def detail_handler(page, status: int) -> dict:
+    """Return detail fields from a job page (empty values if missing)."""
+    return parse_detail_html(await page.content())
 
 
 async def scrape_cards(page) -> list[dict]:
@@ -462,6 +540,7 @@ async def fetch_bulldog_jobs(
             await context.route("**/*", _block_heavy_assets)
 
             # ---- phase 1: listing pages, in concurrent waves ------------------
+            progress.stage("listing pages", total=max_pages)
             page_no, finished = 1, False
             while not finished and (max_pages is None or page_no <= max_pages):
                 last = page_no + concurrency - 1
@@ -474,6 +553,7 @@ async def fetch_bulldog_jobs(
                 results = await asyncio.gather(
                     *(fetch(context, u, throttle, listing_handler) for u in urls)
                 )
+                progress.advance(len(urls))
 
                 # process in page order; ignore anything after the first empty page
                 for n, cards in zip(numbers, results):
@@ -500,9 +580,11 @@ async def fetch_bulldog_jobs(
             details: list[dict | None]
             if with_details and raw_jobs:
                 print(f"Fetching {len(raw_jobs)} detail pages...")
+                progress.stage(f"details ({skipped:,} known)", total=len(raw_jobs))
 
                 async def scrape_one(job: dict):
                     result = await fetch(context, job["url"], throttle, detail_handler)
+                    progress.advance()
                     if result is not None:
                         store.add(job["url"])  # saved immediately, survives crashes
                     return result
@@ -533,8 +615,10 @@ async def fetch_bulldog_jobs(
         ))
 
         work_mode = detail.get("work_mode")
+        work_mode_raw = detail.get("work_mode_raw")
         if not work_mode and "remote" in str(job.get("city") or "").lower():
-            work_mode = "remote"
+            work_mode = "remote"  # card location "Remote" (no detail data)
+            work_mode_raw = work_mode_raw or job.get("city")
 
         listings.append(
             flat_listing(
@@ -552,7 +636,9 @@ async def fetch_bulldog_jobs(
                 salary_type=salary_type,
                 employment_types=detail.get("employment_types") or [],
                 seniority=detail.get("seniority"),
+                seniority_levels=detail.get("seniority_levels"),
                 work_mode=work_mode,
+                work_mode_raw=work_mode_raw,
                 application_url=job["url"],
                 benefits=detail.get("benefits") or [],
                 date=detail.get("date"),

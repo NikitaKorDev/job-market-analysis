@@ -21,8 +21,10 @@ from scrapers.common import (
     as_list,
     int_or_none,
     normalize_salary_type,
+    normalize_seniority_levels,
     normalize_work_mode,
     str_or_none,
+    tech_list_or_none,
     text_list,
 )
 
@@ -46,7 +48,7 @@ _TRACKING_PREFIXES = ("utm_", "pk_", "mtm_")
 
 # Fields tracked by hash_diff. ``description`` is deliberately excluded
 # (decision 3), as is ``scraped_at``: re-running an unchanged scrape must not
-# create a new version.
+# create a new version. ``work_mode_raw`` is audit-only and not tracked either.
 _HASH_FIELDS = (
     "job_board",
     "url",
@@ -54,12 +56,15 @@ _HASH_FIELDS = (
     "title",
     "city",
     "technologies",
+    "technologies_required",
+    "technologies_nice",
     "salary_month",
     "salary_hour",
     "currency",
     "salary_type",
     "employment_types",
     "seniority",
+    "seniority_levels",
     "work_mode",
     "application_url",
     "benefits",
@@ -89,6 +94,20 @@ _ROW_FIELDS = (
     "scraped_at",
     "hash_diff",
     "effective_from",
+    "technologies_required",
+    "technologies_nice",
+    "seniority_levels",
+    "work_mode_raw",
+)
+
+# Columns added after the first release, in table order. ``ensure_schema``
+# adds them to an existing table (ALTER TABLE ... ADD COLUMN IF NOT EXISTS),
+# so old databases keep working; their old rows simply hold NULL.
+_ADDED_COLUMNS = (
+    ("technologies_required", "VARCHAR[]"),
+    ("technologies_nice", "VARCHAR[]"),
+    ("seniority_levels", "VARCHAR[]"),
+    ("work_mode_raw", "VARCHAR"),
 )
 
 _SCHEMA_SQL = f"""
@@ -116,7 +135,11 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     hash_diff        VARCHAR,
     effective_from   DATE NOT NULL,
     effective_to     DATE,
-    is_current       BOOLEAN NOT NULL
+    is_current       BOOLEAN NOT NULL,
+    technologies_required VARCHAR[],
+    technologies_nice     VARCHAR[],
+    seniority_levels      VARCHAR[],
+    work_mode_raw         VARCHAR
 );
 """
 
@@ -142,7 +165,11 @@ CREATE OR REPLACE TEMP TABLE {STAGE_TABLE} (
     date_posted      DATE,
     scraped_at       TIMESTAMP,
     hash_diff        VARCHAR,
-    effective_from   DATE
+    effective_from   DATE,
+    technologies_required VARCHAR[],
+    technologies_nice     VARCHAR[],
+    seniority_levels      VARCHAR[],
+    work_mode_raw         VARCHAR
 );
 """
 
@@ -277,6 +304,18 @@ def normalise_row(listing: dict) -> dict | None:
     if not job_id:
         return None
 
+    required = tech_list_or_none(listing.get("technologies_required"))
+    nice = tech_list_or_none(listing.get("technologies_nice"))
+    # ``technologies`` is the union of untyped tags, required and nice.
+    technologies = text_list(
+        text_list(_get(listing, "technologies_list", "technologies"))
+        + (required or [])
+        + (nice or [])
+    )
+    seniority = str_or_none(listing.get("seniority"))
+    levels = listing.get("seniority_levels")
+    levels = normalize_seniority_levels(levels if levels is not None else seniority)
+
     return {
         "job_id": job_id,
         "job_board": str_or_none(listing.get("board")) or "",
@@ -285,9 +324,9 @@ def normalise_row(listing: dict) -> dict | None:
         "title": str_or_none(listing.get("title")),
         "city": str_or_none(listing.get("city")),
         "description": str_or_none(listing.get("description")),
-        "technologies": text_list(
-            _get(listing, "technologies_list", "technologies")
-        ),
+        "technologies": technologies,
+        "technologies_required": required,
+        "technologies_nice": nice,
         "salary_month": int_or_none(
             _get(listing, "salary-month", "salary_month")
         ),
@@ -295,8 +334,10 @@ def normalise_row(listing: dict) -> dict | None:
         "currency": str_or_none(listing.get("currency")),
         "salary_type": normalize_salary_type(listing.get("salary_type")),
         "employment_types": as_list(listing.get("employment_types")),
-        "seniority": str_or_none(listing.get("seniority")),
+        "seniority": seniority,
+        "seniority_levels": levels,
         "work_mode": normalize_work_mode(listing.get("work_mode")),
+        "work_mode_raw": str_or_none(listing.get("work_mode_raw")),
         "application_url": str_or_none(listing.get("application_url")),
         "benefits": as_list(listing.get("benefits")),
         "date_posted": _parse_date(_get(listing, "date", "date_posted")),
@@ -324,8 +365,12 @@ def hash_diff(row: dict) -> str:
 
 
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create the Phase 3 table and reject an incompatible pre-existing one."""
+    """Create the table, migrate an older one, reject an incompatible one."""
     conn.execute(_SCHEMA_SQL)
+    for column, sql_type in _ADDED_COLUMNS:
+        conn.execute(
+            f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {column} {sql_type}"
+        )
 
     existing = {row[0] for row in conn.execute(f"DESCRIBE {TABLE}").fetchall()}
     expected = {"surrogate_key", *_ROW_FIELDS, "effective_to", "is_current"}

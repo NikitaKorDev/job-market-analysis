@@ -1,8 +1,10 @@
+import math
 import re
 import time
 
 from curl_cffi import requests
 
+from scrapers import progress
 from scrapers.common import flat_listing, normalize_salary_type, normalize_work_mode
 
 API_URL = "https://www.olx.pl/api/v1/offers/"
@@ -166,15 +168,18 @@ def extract_employment_types(item: dict) -> list[str]:
     return _param_labels(item, ("type", "agreement"))
 
 
-def extract_work_mode(item: dict) -> str | None:
+def extract_work_mode(item: dict) -> tuple[str | None, str | None]:
+    """(work_mode, work_mode_raw) from the ``workplace`` param.
+
+    OLX labels: "W siedzibie firmy" (on_site) -> office, "Praca hybrydowa" -> hybrid,
+    "Praca zdalna" (remote_work_possibility) alone -> remote; several options
+    together (e.g. on-site + remote) -> hybrid, see normalize_work_mode.
+    ``remote_recruitment`` ("Rekrutacja online") is about the interview, not the
+    work, and is ignored.
+    """
     labels = _param_labels(item, ("workplace",))
-    mode = normalize_work_mode(", ".join(labels))
-    if mode:
-        return mode
-    remote = _param(item, "remote_recruitment").get("value")
-    if remote in (True, "true", "1"):
-        return "remote"
-    return None
+    raw = ", ".join(labels) or None
+    return normalize_work_mode(labels), raw
 
 
 def extract_numeric_salary(item: dict) -> tuple[int, int]:
@@ -244,6 +249,7 @@ def fetch_olx_jobs(query: str | None = None, max_pages: int | None = None) -> li
     seen_ids: set[str] = set()
     page = 0
     cap = max_pages if max_pages is not None else HARD_PAGE_CAP
+    progress.stage("API pages", total=max_pages)
 
     while page < cap:
         offset = page * limit
@@ -287,6 +293,7 @@ def fetch_olx_jobs(query: str | None = None, max_pages: int | None = None) -> li
                 salary_month, salary_hour = extract_numeric_salary(item)
                 description = clean_description(item.get("description", ""))
                 techs = extract_technologies(description)
+                work_mode, work_mode_raw = extract_work_mode(item)
 
                 listings_out.append(
                     flat_listing(
@@ -303,7 +310,8 @@ def fetch_olx_jobs(query: str | None = None, max_pages: int | None = None) -> li
                         currency=extract_currency(item),
                         salary_type=extract_salary_type(item),
                         employment_types=extract_employment_types(item),
-                        work_mode=extract_work_mode(item),
+                        work_mode=work_mode,
+                        work_mode_raw=work_mode_raw,
                         application_url=item.get("external_url") or item.get("url"),
                         date=extract_date(item),
                     )
@@ -312,6 +320,9 @@ def fetch_olx_jobs(query: str | None = None, max_pages: int | None = None) -> li
             # Stop once the API's advertised total has been covered.
             meta = data.get("metadata") or {}
             total = meta.get("total_elements")
+            progress.advance()
+            if page == 0 and isinstance(total, int) and total > 0:
+                progress.set_total(min(cap, math.ceil(total / limit)))
             if isinstance(total, int) and offset + len(page_items) >= total:
                 break
 

@@ -9,6 +9,9 @@ Checks:
   * re-ingesting the saved scrape adds no SCD versions;
   * the Jobby smoke query works.
 
+Per-board coverage of technologies / typed technologies / seniority levels /
+work mode is printed by ``python -m scripts.coverage``.
+
 Usage:
     python -m scripts.verify_phase5
     python -m scripts.verify_phase5 --db job_listings.duckdb --raw job_data_raw.json
@@ -55,6 +58,10 @@ REQUIRED_COLUMNS = {
     "effective_from",
     "effective_to",
     "is_current",
+    "technologies_required",
+    "technologies_nice",
+    "seniority_levels",
+    "work_mode_raw",
 }
 
 # Advisory thresholds. Missing descriptions are the only ones that directly

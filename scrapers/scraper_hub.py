@@ -2,11 +2,14 @@ import asyncio
 import importlib
 import inspect
 import json
+import multiprocessing
+import sys
 import traceback
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 # Full package paths relative to the project root
+from scrapers import progress
 from scrapers.common import utc_now_iso
 from scrapers.olx.olx import fetch_olx_jobs
 from scrapers.pracuj.pracuj import fetch_pracuj_listings
@@ -24,23 +27,31 @@ JUSTJOIN_RAW_FILE = Path("justjoin_raw.json")
 # All of these are started together via asyncio.gather (true overlap across sites).
 _SCRAPERS = (
     ("olx", fetch_olx_jobs, {}, "thread"),
-    ("pracuj", fetch_pracuj_listings, {"max_pages": 0}, "async"),
+    #("pracuj", fetch_pracuj_listings, {"max_pages": 0}, "async"),
     ("justjoin", fetch_justjoin_listings, {}, "async"),
     ("nofluff", fetch_no_fluff_listings, {}, "process"),
-    ("praca", fetch_praca_listings, {}, "thread"),
+    #("praca", fetch_praca_listings, {}, "thread"),
     ("bulldogjobs", fetch_bulldog_jobs, {"headless": True, "max_pages": None}, "async"),
 )
 
 
-def _mp_invoke(module_name: str, func_name: str, kwargs: dict):
+def _mp_invoke(name: str, module_name: str, func_name: str, kwargs: dict):
     """Child-process entry: import and call a sync scraper (Windows-spawn safe)."""
-    fn = getattr(importlib.import_module(module_name), func_name)
-    return fn(**kwargs)
+    progress.bind(name)
+    try:
+        fn = getattr(importlib.import_module(module_name), func_name)
+        return fn(**kwargs)
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
 
 
-async def _call(name, fn, kwargs, how, process_pool):
+async def _call(name, fn, kwargs, how, process_pool) -> list[dict]:
     """Run one scraper; a failure is logged and never takes the others down."""
-    print(f"[{name}] starting")
+    # gather() wraps each coroutine in its own Task with a copied context, so
+    # this binding (and everything it tags: output, progress) stays per scraper.
+    progress.bind(name)
+    progress.set_state("running")
     try:
         if how == "async":
             if not inspect.iscoroutinefunction(fn):
@@ -49,16 +60,17 @@ async def _call(name, fn, kwargs, how, process_pool):
         elif how == "process":
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                process_pool, _mp_invoke, fn.__module__, fn.__name__, kwargs
+                process_pool, _mp_invoke, name, fn.__module__, fn.__name__, kwargs
             )
         else:
             result = await asyncio.to_thread(fn, **kwargs)
-        print(f"[{name}] finished")
-        return result
-    except Exception:
+        listings = _as_listings(name, result)
+        progress.set_state("done", count=len(listings))
+        return listings
+    except Exception as e:
         traceback.print_exc()
-        print(f"[{name}] failed, proceeding.\n")
-        return None
+        progress.set_state("failed", error=f"{type(e).__name__}: {e}")
+        return []
 
 
 def _as_listings(name: str, result) -> list[dict]:
@@ -91,20 +103,34 @@ async def _fetch_all(process_pool):
             for name, fn, kwargs, how in _SCRAPERS
         )
     )
-    by_name = dict(zip(names, gathered))
+    return dict(zip(names, gathered))
 
-    return {
-        name: _as_listings(name, by_name.get(name))
-        for name in names
-    }
+
+def scraper_names() -> list[str]:
+    return [name for name, *_ in _SCRAPERS]
 
 
 def fetch_all_listings():
-    print("\n\n\n\n\n")
-    with ProcessPoolExecutor(max_workers=1) as process_pool:
-        results = asyncio.run(_fetch_all(process_pool))
-    for name, data in results.items():
-        print(f"{name}: {len(data)} listings")
+    # Child processes report progress/output over this queue when a front end
+    # (dashboard) is listening; otherwise they print straight to the terminal.
+    mp_context = multiprocessing.get_context()
+    queue = mp_context.Queue() if progress.active() else None
+    forwarder = progress.start_forwarder(queue) if queue is not None else None
+    try:
+        with ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=mp_context,
+            initializer=progress.init_child,
+            initargs=(queue,),
+        ) as process_pool:
+            results = asyncio.run(_fetch_all(process_pool))
+    finally:
+        if forwarder is not None:
+            queue.put(None)
+            forwarder.join(timeout=5)
+    if not progress.active():
+        for name, data in results.items():
+            print(f"{name}: {len(data)} listings")
     return results
 
 

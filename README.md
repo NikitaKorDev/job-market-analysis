@@ -33,6 +33,7 @@ main.py                 scrape + ingest entry point
 storage.py              DuckDB SCD2 storage
 scrapers/               one package per board, plus scraper_hub.py and common.py
 scripts/verify_phase5.py  integrity checks on the database
+scripts/coverage.py       per-board coverage of technologies / seniority / work mode
 tests/                  unit tests
 plan.md                 design notes and decisions
 ```
@@ -51,6 +52,7 @@ patchright install chromium
 ```bash
 python main.py                   # scrape all boards and ingest into DuckDB
 python -m scripts.verify_phase5  # check the database
+python -m scripts.coverage       # per-board field coverage
 pytest                           # run tests
 ```
 
